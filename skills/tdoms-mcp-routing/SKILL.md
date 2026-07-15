@@ -1,48 +1,89 @@
 ---
 name: tdoms-mcp-routing
-description: Use TD/OMS change management through the standalone TD/OMS MCP or Octo MCP tools. Trigger for tasks, requests, source, objects, checkout, promote, transfer, compile, branches, connection lists, logs, spool files, conflicts, labels, and other TD/OMS workflows, especially when an agent incorrectly asks for Octo sign-in or a programmer ID.
+description: Operate TD/OMS change management through the standalone TD/OMS MCP or, when necessary, the Octo extension MCP. Use for developer workflows involving tasks, requests, objects, source, checkout, promote, transfer, compile, branches, solutions, connection lists, logs, spool files, revisions, conflicts, ratification, labels, trackers, remote jobs, or TD/OMS option discovery. Also use when choosing between standalone and Octo tools, diagnosing Octo sign-in or programmer-context failures, or explaining TD/OMS MCP capabilities and limits.
 ---
 
 # TD/OMS MCP Routing
 
-Prefer the standalone TD/OMS MCP when available. It works independently of the Octo VS Code UI.
+Use the standalone MCP as the primary automation surface. It talks to the configured TD/OMS REST server and does not control VS Code or require an Octo session.
 
-## Standalone Core Flow
+## Load References Deliberately
 
-1. Call `tdoms_get_current_context`. Let it select the only connection and derive the TD/OMS programmer ID from the saved profile.
-2. Call `tdoms_list_capabilities` when the requested workflow or required choices are unclear.
-3. Call `tdoms_discover_options` before choosing application, environment, programmer, path, reason, target, object, template, conflict resolution, or any site-specific value.
-4. Use `tdoms_discover_options` for structured task, request, component, source, queue, compile, history, log, spool, tracker, dependency, and dashboard reads.
-5. For changes, call `tdoms_plan_workflow` with the exact context, selections, and `optionSelections` for values returned by discovery. Show the user its action, target, endpoint/body preview, warnings, and blockers.
-6. Call `tdoms_execute_workflow` with the returned `planId` and `confirm: true` only after the user approves that exact preview.
-7. Call `tdoms_get_workflow_status` for asynchronous work.
+- Read [references/workflow-playbooks.md](references/workflow-playbooks.md) before performing a domain workflow such as checkout, promote, source save, compile, completion, ratification, branch work, or conflict handling.
+- Read [references/tool-and-extension-map.md](references/tool-and-extension-map.md) when selecting tools, comparing the standalone MCP with Octo, or checking whether a capability is core-only, full-profile, UI-only, or unsupported.
+- Read [references/tdoms-domain-and-sources.md](references/tdoms-domain-and-sources.md) when terminology, lifecycle semantics, source authority, or version differences matter.
 
-Never guess a value when discovery returns no choices or `supported: false`. Ask one concise question instead.
+## Establish Runtime Context
 
-For "my tasks," use option set `tasks` without supplying a programmer. The MCP uses the saved TD/OMS username automatically. Set `context.allUsers: true` only when the user requests tasks for everyone.
+1. Inspect the tools actually available in the current agent session. Runtime tool schemas override this skill if names or inputs differ.
+2. Call `tdoms_list_connections`.
+3. If exactly one connection exists, omit `connectionId` where the schema permits and call `tdoms_get_current_context`.
+4. If several connections exist, select only from the returned profiles. Ask the user to choose when the request does not identify one.
+5. If no connection exists, direct the user to save and test one through `tdoms-mcp ui`. Never request a password, token, or certificate contents in chat.
+6. Treat `user.programmerId` from current context as the default identity for "my" records. Do not ask for a programmer ID unless the user is reassigning work, selecting another programmer, or the server cannot derive one.
 
-## Mutation Rules
+## Choose the Surface
 
-- Read current state before planning.
-- Treat source saves, checkout, promote, transfer, compile, complete, delete, process, queue, release, close, and configuration changes as mutations.
-- Never set `confirm: true` without explicit approval of the current plan.
-- Stop when TD/OMS reports warnings, locks, conflicts, authority failures, or changed state. Summarize the result and replan if needed.
-- Never ask the user to paste TD/OMS credentials into chat.
+- Prefer the seven `core` tools for portable agent workflows and small tool budgets.
+- Use `tdoms_discover_options` for both choices and structured reads that replace Octo views.
+- Use `tdoms_plan_workflow` and `tdoms_execute_workflow` whenever the requested mutation appears in `tdoms_list_capabilities`.
+- Use a `full` named tool when no core capability exists or when a typed tool gives safer inputs, richer diagnostics, or a complete read workflow.
+- Use Octo tools only when the user explicitly needs an Octo panel/editor or when the standalone MCP lacks the required TD/OMS or Octo-cloud operation.
+- Do not use `tdoms_call_api` until named and planned tools have been ruled out and the endpoint and body are documented for the connected TD/OMS version.
 
-## Full Profile
+## Read Workflow
 
-When `TDOMS_MCP_PROFILE=full`, prefer a specific named read tool when it is clearer than generic discovery. Named mutation tools still require explicit approval and `confirm: true`.
+1. Resolve context.
+2. Call `tdoms_list_capabilities` if the workflow is unclear.
+3. Call `tdoms_discover_options` with the relevant `optionSet`, narrow context, and pagination.
+4. Treat returned `value` fields as machine inputs and `label` fields as display text.
+5. Honor `enabled`, `source.authoritative`, `warnings`, and `supported`.
+6. Follow pagination rather than assuming the first page is complete.
+7. Verify the returned application, task, environment, object, library, member, or path before reporting results.
 
-Use typed transfer tools in this sequence: select targets, prepare, inspect warnings, execute, then monitor progress. Use typed source tools to read the latest source and last-change marker before saving. Use compile-and-check to retrieve diagnostics instead of asking the user to paste spool output.
+For "my tasks," discover `tasks` without a programmer filter. The MCP applies the saved TD/OMS username in uppercase. Set `context.allUsers: true` only when the user requests a cross-user search.
 
-## Octo MCP Fallback
+## Planned Mutation Workflow
 
-If only the extension MCP is available:
+Follow this sequence for every supported core mutation:
 
-- Use `OMS-Database-REST-API.getRecords` for reads and task lists.
-- Use `TD-OMS-Task-API` only for task mutations.
-- Use `TD-OMS-Branch-Service-API` for branch mutations.
-- Treat `Octo-Views` and `Octo-Wizards` as UI launchers, not proof that an action completed.
-- Do not require `Octo-User-Context` before direct TD/OMS reads.
+1. Read the current state.
+2. Discover every site-specific choice required by the capability.
+3. Call `tdoms_plan_workflow` with:
+   - the exact capability `workflow` id;
+   - stable identifiers in `context`;
+   - mutation fields in `selections`;
+   - each chosen discovery value in `optionSelections`, keyed by option-set name.
+4. Stop on blockers. Never invent a missing option or silently replace an unavailable choice.
+5. Present the plan title, target, endpoint/body preview, warnings, and expiry to the user.
+6. Obtain explicit approval for that exact preview.
+7. Call `tdoms_execute_workflow` with the matching `planId` and `confirm: true`.
+8. Call `tdoms_get_workflow_status` and/or a domain read to verify the postcondition.
 
-If Octo user context says sign-in is required but a direct TD/OMS read succeeds, continue with the direct tool and report that the Octo UI context is stale. Retry programmer filters in uppercase before reporting that no tasks exist.
+Plans expire after ten minutes, execute once, and are rejected if state or selected options change. Re-discover and replan instead of trying to force a stale plan.
+
+## Full-Profile Mutation Workflow
+
+Some full-profile actions, including task creation, source save, compile, connection-list processing, and several branch or request actions, are not represented by a core plan id.
+
+1. Read current state and discover choices first.
+2. Prefer a typed named tool over an `*_action` tool or raw API call.
+3. Construct the exact arguments but do not call the mutation yet.
+4. Show the user the action, target, important fields, and likely effect.
+5. Call the named tool with `confirm: true` only after explicit approval.
+6. Re-read TD/OMS to verify the result. A successful transport response is not sufficient proof of the final lifecycle state.
+
+## Safety And Failure Rules
+
+- Treat create, change, save, connect, disconnect, process, queue, release, checkout, promote, transfer, complete, ratify, resolve, close, schedule, delete, purge, and configuration operations as mutations.
+- Do not equate `OMQRTO/select` with a completed transfer; it discovers eligible targets and may initialize preparatory server state.
+- Stop on authority errors, locks, pre-transfer checks, warnings requiring a decision, version conflicts, stale source markers, compile failures, or changed task state.
+- Preserve server casing and exact codes. Retry a programmer lookup in uppercase only when identity-derived lookup returned no records.
+- Do not broaden to all users, all applications, or unfiltered database queries without a user need.
+- Do not claim that an Octo wizard or view launcher completed work. It only opened UI.
+- If Octo user context reports sign-in required but standalone reads succeed, continue through the standalone MCP and describe the Octo session as separate or stale.
+- Never expose saved connection metadata beyond what the task requires. Never print passwords, JWTs, master keys, CA contents, local credential files, or personal filesystem paths.
+
+## Finish With Evidence
+
+Report the identifiers used, the observed final state, warnings that remain, and any follow-up state check needed. Distinguish clearly between planned, submitted, queued, running, completed, rejected, and unsupported work.

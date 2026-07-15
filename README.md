@@ -66,6 +66,12 @@ tool_timeout_sec = 60
 
 Restart or reload the agent's MCP servers after changing the configuration.
 
+## Agent Skill
+
+The package includes a portable developer skill at `skills/tdoms-mcp-routing`. Its `SKILL.md` teaches agents how to select core, full-profile, or Octo tools; discover site-specific values; perform guarded task, source, compile, checkout, promote, transfer, branch, and approval workflows; and verify final TD/OMS state.
+
+Agents that support `SKILL.md` folders can register that directory using their normal skill installation mechanism. The skill contains no credentials, connection profiles, organization-specific values, or personal information. Runtime tool schemas and values returned by the connected TD/OMS server remain authoritative.
+
 Detect supported local clients from the installed command:
 
 ```shell

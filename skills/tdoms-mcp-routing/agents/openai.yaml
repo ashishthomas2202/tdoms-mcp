@@ -1,4 +1,4 @@
 interface:
-  display_name: "TD/OMS MCP Routing"
-  short_description: "Route TD/OMS change-management workflows"
-  default_prompt: "Use $tdoms-mcp-routing to handle this TD/OMS request safely through MCP."
+  display_name: "TD/OMS Change Management"
+  short_description: "Run safe TD/OMS developer workflows"
+  default_prompt: "Use $tdoms-mcp-routing to execute this TD/OMS developer workflow with live option discovery, explicit approval, and final-state verification."
