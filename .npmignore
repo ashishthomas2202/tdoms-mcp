@@ -1,0 +1,9 @@
+test/
+RESEARCH.md
+.private/
+.env*
+*.log
+data/
+*.tgz
+docs/octo-extension-capabilities.json
+scripts/audit-octo-extension.mjs

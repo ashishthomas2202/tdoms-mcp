@@ -1,0 +1,52 @@
+{
+  "name": "tdoms-mcp",
+  "version": "0.6.1",
+  "description": "Agent-neutral MCP server for TD/OMS change-management workflows.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ashishthomas2202/tdoms-mcp.git"
+  },
+  "homepage": "https://github.com/ashishthomas2202/tdoms-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/ashishthomas2202/tdoms-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "tdoms",
+    "change-management",
+    "ibm-i"
+  ],
+  "files": [
+    "src/",
+    "skills/",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "tdoms-mcp": "./src/index.js"
+  },
+  "scripts": {
+    "mcp": "node src/index.js mcp",
+    "mcp:full": "node src/index.js mcp --profile full",
+    "ui": "node src/index.js ui",
+    "dev": "node src/index.js dev",
+    "smoke": "node src/index.js smoke",
+    "secure-storage": "node src/index.js secure-storage",
+    "clients": "node src/index.js clients",
+    "clients:install": "node src/index.js install-detected --confirm",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.2",
+    "express": "^4.19.2",
+    "jsonc-parser": "^3.3.1",
+    "lucide-static": "^1.24.0",
+    "zod": "^4.1.12"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

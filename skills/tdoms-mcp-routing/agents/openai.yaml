@@ -1,0 +1,4 @@
+interface:
+  display_name: "TD/OMS MCP Routing"
+  short_description: "Route TD/OMS change-management workflows"
+  default_prompt: "Use $tdoms-mcp-routing to handle this TD/OMS request safely through MCP."
