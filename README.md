@@ -4,38 +4,37 @@ Standalone TD/OMS change-management MCP for IBM Bob, Codex, Claude-compatible cl
 
 This is an independent community project. It is not affiliated with, maintained by, or endorsed by Remain Software, IBM, or their affiliates. TD/OMS, Octo, IBM, IBM i, and IBM Bob are trademarks of their respective owners.
 
-## Setup
+## Install
 
-Install the published command-line package:
+TD/OMS MCP is a command-line MCP server, not an application dependency. Install it globally so local agents can launch the `tdoms-mcp` command:
 
 ```shell
 npm install --global tdoms-mcp
 tdoms-mcp ui
 ```
 
-Or run it from a source checkout:
+To try it without installing it globally:
 
-```powershell
-npm install
-npm run ui
+```shell
+npx --yes tdoms-mcp@latest ui
 ```
 
-Open `http://127.0.0.1:3737`, add the TD/OMS connection, and test it. Credentials and tokens stay in the local TD/OMS MCP data directory and are never returned to agents.
+Open `http://127.0.0.1:3737`, add a TD/OMS connection, and test it. Credentials and tokens stay in the local TD/OMS MCP data directory and are never returned to agents.
 
 The Agent setup view detects supported MCP clients and can install or update this server after confirmation. Known configuration files are backed up before each change and restored automatically when a client command fails.
 
 Keep TLS verification enabled. Publicly trusted certificates work without configuration. For an internal certificate authority, set the optional CA certificate file in the connection manager or set `TDOMS_MCP_CA_FILE` to an approved PEM file supplied by the organization.
 
-Start the compact agent-neutral profile:
+After a global installation, start the compact agent-neutral profile:
 
-```powershell
-npm run mcp
+```shell
+tdoms-mcp mcp
 ```
 
 Start the complete named-tool profile:
 
-```powershell
-npm run mcp:full
+```shell
+tdoms-mcp mcp --profile full
 ```
 
 The equivalent environment setting is `TDOMS_MCP_PROFILE=core` or `TDOMS_MCP_PROFILE=full`. `core` is the default.
@@ -67,25 +66,25 @@ tool_timeout_sec = 60
 
 Restart or reload the agent's MCP servers after changing the configuration.
 
-Detect supported local clients from the command line:
+Detect supported local clients from the installed command:
 
-```powershell
-npm run clients
+```shell
+tdoms-mcp clients
 ```
 
 Install or update one detected client:
 
-```powershell
-node src/index.js install-client ibm-bob --confirm
-node src/index.js install-client codex --confirm
-node src/index.js install-client claude-code --confirm
-node src/index.js install-client vscode --confirm
+```shell
+tdoms-mcp install-client ibm-bob --confirm
+tdoms-mcp install-client codex --confirm
+tdoms-mcp install-client claude-code --confirm
+tdoms-mcp install-client vscode --confirm
 ```
 
 Configure every detected client that is not already configured:
 
-```powershell
-npm run clients:install
+```shell
+tdoms-mcp install-detected --confirm
 ```
 
 Documented adapters are included for IBM Bob, Codex, Claude Code sessions, Claude Desktop chat, VS Code, Cursor, Windsurf, Kiro, Gemini CLI, Zed, and OpenCode. Microsoft Store Claude installations use the app's virtualized configuration directory automatically.
@@ -128,11 +127,29 @@ The `full` profile exposes 226 tools: the seven universal tools plus the existin
 
 All tools that can change TD/OMS require explicit confirmation. `tdoms_call_api` remains available in `full` as an advanced escape hatch for documented endpoints.
 
-## Validation
+## CLI Reference
 
-```powershell
+```text
+tdoms-mcp ui                              Open the local connection and agent setup UI
+tdoms-mcp clients                         List detected MCP-capable agents
+tdoms-mcp install-client <id> --confirm   Configure one detected agent
+tdoms-mcp install-detected --confirm      Configure all detected agents
+tdoms-mcp mcp                             Start the core stdio MCP server
+tdoms-mcp mcp --profile full              Start the complete tool profile
+tdoms-mcp smoke                           Check local configuration without connecting
+tdoms-mcp secure-storage                  Harden the local data directory
+tdoms-mcp --help                          Show command help
+```
+
+## Development
+
+The following commands are only for contributors working from a cloned source repository. They are not required after installing the npm package.
+
+```shell
+npm install
 npm test
 npm run smoke
+npm run ui
 ```
 
 Tests use mocked TD/OMS clients and do not mutate a real environment. Live mutation tests must be enabled deliberately against a dedicated test system.
@@ -154,7 +171,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 On Windows, restrict an existing data directory to the current user, SYSTEM, and local Administrators:
 
 ```powershell
-npm run secure-storage
+tdoms-mcp secure-storage
 ```
 
 Native WSL uses its own Linux data directory and requires Node.js 18 or newer. To reuse the Windows installation and Windows credentials from WSL, launch Windows `node.exe`; otherwise configure the connection separately inside WSL. Avoid sharing credential files through `/mnt/c` unless the Windows ACL has been hardened.

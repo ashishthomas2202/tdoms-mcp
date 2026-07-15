@@ -11,6 +11,11 @@ const profileFlagIndex = process.argv.indexOf("--profile");
 const profile = profileFlagIndex >= 0 ? process.argv[profileFlagIndex + 1] : process.env.TDOMS_MCP_PROFILE;
 
 async function main() {
+  if (["--help", "-h", "help"].includes(command)) {
+    printHelp();
+    return;
+  }
+
   const store = new ConnectionStore();
   const clientManager = new ClientManager();
 
@@ -69,8 +74,22 @@ async function main() {
   }
 
   console.error(`Unknown command: ${command}`);
-  console.error("Expected one of: mcp, ui, dev, smoke, secure-storage, clients, install-client, install-detected");
+  printHelp(console.error);
   process.exit(1);
+}
+
+function printHelp(write = console.log) {
+  write(`TD/OMS MCP
+
+Usage:
+  tdoms-mcp ui
+  tdoms-mcp clients
+  tdoms-mcp install-client <id> --confirm
+  tdoms-mcp install-detected --confirm
+  tdoms-mcp mcp [--profile core|full]
+  tdoms-mcp smoke
+  tdoms-mcp secure-storage
+  tdoms-mcp --help`);
 }
 
 main().catch((error) => {

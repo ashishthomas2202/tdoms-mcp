@@ -1,6 +1,6 @@
 {
   "name": "tdoms-mcp",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Agent-neutral MCP server for TD/OMS change-management workflows.",
   "type": "module",
   "license": "MIT",
