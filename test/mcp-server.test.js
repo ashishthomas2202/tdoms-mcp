@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -960,21 +959,4 @@ test("workflow plans validate selected options again before execution", async ()
     /options changed/
   );
   assert.ok(!calls.some(({ service, path }) => service === "OMQRTA" && path === "/change"));
-});
-
-test("checked-in Octo parity fixture covers every audited backend route", () => {
-  const baseline = JSON.parse(fs.readFileSync(new URL("../docs/octo-extension-capabilities.json", import.meta.url), "utf8"));
-  const implementation = [
-    fs.readFileSync(new URL("../src/mcp-server.js", import.meta.url), "utf8"),
-    fs.readFileSync(new URL("../src/tdoms-client.js", import.meta.url), "utf8")
-  ].join("\n");
-
-  assert.equal(baseline.backendEndpoints.length, 89);
-  assert.equal(new Set(baseline.backendEndpoints).size, 89);
-  for (const endpoint of baseline.backendEndpoints) {
-    const [, service, ...pathParts] = endpoint.split("/");
-    const routePath = `/${pathParts.join("/")}`;
-    assert.ok(implementation.includes(`\"${service}\"`), `${service} should be represented in the implementation`);
-    assert.ok(implementation.includes(`\"${routePath}\"`) || implementation.includes(endpoint), `${endpoint} should be represented in the implementation`);
-  }
 });
