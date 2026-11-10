@@ -2159,7 +2159,7 @@ function registerFamilyTools(server, { store, clientFactory }) {
     copyObject: z.enum(["0", "1"]).default("0").describe("Use 1 when creating by copying a template object; otherwise 0."),
     template,
     newObjectTemplate,
-    newObject: z.string().max(128).describe("New object name, such as CGPPDS."),
+    newObject: z.string().max(128).describe("New object name, such as DEMOSRC."),
     newObjectLibrary: z.string().max(128).describe("Target object library."),
     newObjectType: z.string().describe("New object type, such as *PGM, *FILE, *MODULE, or *SRVPGM."),
     newDetail: z.string().default("").describe("Object detail/member. Usually blank for a new program object."),

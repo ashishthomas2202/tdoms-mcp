@@ -256,13 +256,13 @@ test("generic API caller covers dynamic APIs such as impact analysis", async () 
   await callTool(server, "tdoms_call_api", {
     connectionId: "conn-1",
     service: "OMQRIA",
-    path: "/ref/CGPCHS/*PGM/RICHARD/CGPCHS",
+    path: "/ref/DEMOPGM/*PGM/DEMOLIB/DEMOPGM",
     body: {},
     confirm: true
   });
 
   assert.equal(calls[0].service, "OMQRIA");
-  assert.equal(calls[0].path, "/ref/CGPCHS/*PGM/RICHARD/CGPCHS");
+  assert.equal(calls[0].path, "/ref/DEMOPGM/*PGM/DEMOLIB/DEMOPGM");
 });
 
 test("registers organized family tools for extension-like workflows", () => {
@@ -333,17 +333,17 @@ test("new family read wrappers route to documented services", async () => {
 
   await callTool(server, "tdoms_compile_event_raw_records", {
     connectionId: "conn-1",
-    body: { library: "QTEMP", memberName: "CGPCHS" }
+    body: { library: "QTEMP", memberName: "DEMOPGM" }
   });
   await callTool(server, "tdoms_analysis_impact", {
     connectionId: "conn-1",
-    path: "/ref/CGPCHS/*PGM/RICHARD/CGPCHS",
+    path: "/ref/DEMOPGM/*PGM/DEMOLIB/DEMOPGM",
     body: {}
   });
 
   assert.deepEqual(
     calls.map(({ service, path }) => `${service}${path}`),
-    ["OMQREV/getRawRecords", "OMQRIA/ref/CGPCHS/*PGM/RICHARD/CGPCHS"]
+    ["OMQREV/getRawRecords", "OMQRIA/ref/DEMOPGM/*PGM/DEMOLIB/DEMOPGM"]
   );
 });
 
@@ -363,14 +363,14 @@ test("typed new-object wrappers map to documented OMQRNO bodies", async () => {
     applicationCode: "DEMOAPP",
     task: "T1002",
     environmentCode: "DEV",
-    newObject: "CGPPDS",
+    newObject: "DEMOSRC",
     newObjectLibrary: "DEMOLIB",
     newObjectType: "*PGM",
     newDescription: "Promotion Descriptions CGI",
     newAttribute: "RPGLE",
     newSourceFile: "QRPGLESRC",
     newSourceLibrary: "DEMOLIB",
-    newSourceMember: "CGPPDS",
+    newSourceMember: "DEMOSRC",
     newSourceAttribute: "RPGLE",
     confirm: true
   });
@@ -381,7 +381,7 @@ test("typed new-object wrappers map to documented OMQRNO bodies", async () => {
     environmentCode: "DEV",
     newObject: "QRPGLESRC",
     newObjectLibrary: "DEMOLIB",
-    newDetail: "CGPPDS",
+    newDetail: "DEMOSRC",
     newDescription: "Promotion Descriptions CGI",
     newAttribute: "RPGLE",
     confirm: true
@@ -403,7 +403,7 @@ test("typed new-object wrappers map to documented OMQRNO bodies", async () => {
     task: "T1002",
     environmentCode: "DEV",
     copyObject: "0",
-    newObject: "CGPPDS",
+    newObject: "DEMOSRC",
     newObjectLibrary: "DEMOLIB",
     newObjectType: "*PGM",
     newDetail: "",
@@ -411,7 +411,7 @@ test("typed new-object wrappers map to documented OMQRNO bodies", async () => {
     newAttribute: "RPGLE",
     newSourceFile: "QRPGLESRC",
     newSourceLibrary: "DEMOLIB",
-    newSourceMember: "CGPPDS",
+    newSourceMember: "DEMOSRC",
     newSourceAttribute: "RPGLE",
     temporaryOrVirtualObject: "0"
   });
@@ -423,7 +423,7 @@ test("typed new-object wrappers map to documented OMQRNO bodies", async () => {
     newObject: "QRPGLESRC",
     newObjectLibrary: "DEMOLIB",
     newObjectType: "*FILE",
-    newDetail: "CGPPDS",
+    newDetail: "DEMOSRC",
     newDescription: "Promotion Descriptions CGI",
     newAttribute: "RPGLE",
     temporaryOrVirtualObject: "0"
@@ -440,7 +440,7 @@ test("raw new-object action rejects misleading field names before calling TD/OMS
       body: {
         applicationCode: "DEMOAPP",
         fixNumber: "T1002",
-        objectCode: "CGPPDS",
+        objectCode: "DEMOSRC",
         objectType: "*PGM",
         objectLibrary: "DEMOLIB",
         objectAttribute: "RPGLE"
@@ -556,7 +556,7 @@ test("compile-and-check queues releases and parses events in one workflow", asyn
     connectionId: "conn-1",
     applicationCode: "DEMOAPP",
     taskNumber: "T1002",
-    objectCode: "CGPPDS",
+    objectCode: "DEMOSRC",
     objectType: "*PGM",
     objectLibrary: "DEMOLIB",
     parseEvents: true,
@@ -570,7 +570,7 @@ test("compile-and-check queues releases and parses events in one workflow", asyn
   assert.deepEqual(calls[0].body, {
     applicationCode: "DEMOAPP",
     taskNumber: "T1002",
-    objectCode: "CGPPDS",
+    objectCode: "DEMOSRC",
     objectType: "*PGM",
     objectLibrary: "DEMOLIB",
     detail: "",
@@ -578,7 +578,7 @@ test("compile-and-check queues releases and parses events in one workflow", asyn
   });
   assert.deepEqual(calls[2].body, {
     library: "DEMOLIB",
-    memberName: "CGPPDS"
+    memberName: "DEMOSRC"
   });
 });
 
@@ -617,7 +617,7 @@ test("source-all helpers read pages save chunks and patch literals", async () =>
     objectLibrary: "DEMOLIB",
     objectCode: "QRPGLESRC",
     objectType: "*FILE",
-    memberCode: "CGPPDS"
+    memberCode: "DEMOSRC"
   });
 
   assert.equal(readResult.structuredContent.sourceTextUtf8, "line1\nold\nline3");
@@ -629,7 +629,7 @@ test("source-all helpers read pages save chunks and patch literals", async () =>
     objectLibrary: "DEMOLIB",
     objectCode: "QRPGLESRC",
     objectType: "*FILE",
-    memberCode: "CGPPDS",
+    memberCode: "DEMOSRC",
     sourceText: "abcd",
     lastChangeDate: "2026-07-02-10.00.00.000000",
     ccsid: 37,
@@ -644,7 +644,7 @@ test("source-all helpers read pages save chunks and patch literals", async () =>
     objectLibrary: "DEMOLIB",
     objectCode: "QRPGLESRC",
     objectType: "*FILE",
-    memberCode: "CGPPDS",
+    memberCode: "DEMOSRC",
     searchText: "old",
     replacementText: "new",
     confirm: true
