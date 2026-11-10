@@ -54,6 +54,7 @@ test("serializes concurrent updates from separate store instances", async () => 
         id: `connection-${index}`,
         name: `Connection ${index}`,
         host: `host-${index}.example.test`,
+        port: "45011",
         username: `user-${index}`,
         password: `password-${index}`
       });

@@ -48,7 +48,7 @@ If no task is found, retry the derived programmer in uppercase before reporting 
 
 ## Task And Request Lifecycle
 
-Creating a task or request requires the full profile:
+Creating a task or request uses named tools from the `tasks` and `requests` groups, called directly when the group is loaded or through `tdoms_run_tool`:
 
 1. Discover applications, programmers, task types, releases, priorities, paths, or request metadata required by the live tool schema.
 2. Build a preview for `tdoms_create_task` or `tdoms_request_create`.
@@ -61,13 +61,14 @@ Never infer that a task is ready to complete from its description. Read objects,
 ## Source Changes
 
 1. Resolve the exact object, type, library, member/detail, application, and task.
-2. Read all pages with core `source` discovery or full `tdoms_read_source_all`.
+2. Call `tdoms_check_source` to confirm the target is editable and see its page count, then read all pages with core `source` discovery or `tdoms_read_source_all`.
 3. Preserve the returned last-change marker and encoding metadata.
 4. Make the smallest requested edit locally.
 5. Show a concise diff and target identity.
 6. Obtain approval.
-7. Prefer `tdoms_patch_source_literal` for a narrow literal replacement or `tdoms_save_source_all` for a complete save. Pass the latest change marker.
-8. Re-read source and compare the saved text.
+7. Prefer `tdoms_patch_source_literal` for a narrow literal replacement or `tdoms_save_source_checked` for a complete save. Pass the change marker from step 3 as `expectedLastChangeDate`; the save is refused when the source changed in the meantime.
+8. If the save reports `failedPage`, treat the source as unconfirmed: run `tdoms_check_source`, then re-read before retrying.
+9. Re-read source and compare the saved text.
 
 Use `tdoms_ifs_read`, `tdoms_ifs_save`, and `tdoms_ifs_compare` for IFS content. Stop on stale markers or object locks and re-read before retrying.
 
@@ -76,7 +77,7 @@ Use `tdoms_ifs_read`, `tdoms_ifs_save`, and `tdoms_ifs_compare` for IFS content.
 1. Discover application, environment, task, object type, and attribute.
 2. Call core discovery for `objectLocations`/`objectTemplates` or full `tdoms_new_object_location`.
 3. Use only returned libraries, source files, templates, and defaults.
-4. For a new object, use the core `new-object` plan or full `tdoms_new_object_create`.
+4. For a new object, use the core `new-object` plan or `tdoms_new_object_create`. Use `tdoms_data_area_create` for a data area and `tdoms_ifs_object_create` for an IFS file.
 5. For a member in an existing source file, use `tdoms_new_source_member_create`.
 6. Verify the object/component record and source location after creation.
 

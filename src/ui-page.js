@@ -178,7 +178,7 @@ export function renderPage() {
                   <div class="details-fields">
                     <div class="field-row">
                       <label>Protocol<select name="protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
-                      <label>REST port<input name="port" value="45011" inputmode="numeric"></label>
+                      <label>REST port<input name="port" inputmode="numeric" required></label>
                     </div>
                     <label>TD/OMS library<input name="library" value="OMS" required></label>
                     <label class="check-row"><input name="verifyTls" type="checkbox" checked>Verify server certificate</label>
@@ -311,7 +311,7 @@ export function renderPage() {
     function resetForm() {
       form.reset();
       form.elements.id.value = "";
-      form.elements.port.value = "45011";
+      form.elements.port.value = "";
       form.elements.library.value = "OMS";
       form.elements.protocol.value = "https";
       form.elements.verifyTls.checked = true;

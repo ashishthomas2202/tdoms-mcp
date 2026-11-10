@@ -6,12 +6,30 @@ import { SecretStore } from "./secret-store.js";
 import { atomicWriteFile, withFileLock } from "./storage-utils.js";
 
 const CONNECTIONS_FILE = "connections.json";
+const CONTEXT_FILE = "context.json";
 
 export class ConnectionStore {
   constructor(dir = dataDir(), { env = process.env } = {}) {
     this.dir = dir;
     this.filePath = path.join(dir, CONNECTIONS_FILE);
+    this.contextPath = path.join(dir, CONTEXT_FILE);
     this.secrets = new SecretStore(dir, { env });
+  }
+
+  async getWorkingContext() {
+    try {
+      const parsed = JSON.parse(await fs.readFile(this.contextPath, "utf8"));
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (error) {
+      if (error.code === "ENOENT" || error instanceof SyntaxError) return {};
+      throw error;
+    }
+  }
+
+  async setWorkingContext(context) {
+    await withFileLock(this.contextPath, async () => {
+      await atomicWriteFile(this.contextPath, `${JSON.stringify(context || {}, null, 2)}\n`, { mode: 0o600 });
+    });
   }
 
   async listConnections() {
@@ -49,11 +67,13 @@ export class ConnectionStore {
         name: String(input.name || input.host || "TD/OMS").trim(),
         protocol: input.protocol || "https",
         host: String(input.host || "").trim(),
-        port: String(input.port || "45011").trim(),
+        port: String(input.port || "").trim(),
         library: String(input.library || "OMS").trim(),
         username: String(input.username || "").trim(),
         verifyTls: input.verifyTls !== false,
         caFile: String(input.caFile || "").trim() || undefined,
+        email: String(input.email ?? existing?.email ?? "").trim() || undefined,
+        source: String(input.source ?? existing?.source ?? "").trim() || undefined,
         createdAt: existing?.createdAt || now,
         updatedAt: now,
         lastLoginAt: existing?.lastLoginAt,

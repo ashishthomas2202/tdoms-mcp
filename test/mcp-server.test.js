@@ -296,7 +296,7 @@ test("MCP clients can list tools without schema conversion errors", async () => 
 
   try {
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 226);
+    assert.equal(tools.tools.length, 243);
     assert.ok(tools.tools.some((tool) => tool.name === "tdoms_connection_list"));
     assert.ok(tools.tools.some((tool) => tool.name === "tdoms_analysis_impact"));
     assert.ok(tools.tools.some((tool) => tool.name === "tdoms_new_object_create"));
@@ -673,13 +673,18 @@ test("core profile exposes only the universal agent-neutral tools", async () => 
   const tools = Object.keys(server._registeredTools).sort();
 
   assert.deepEqual(tools, [
+    "tdoms_describe_tools",
     "tdoms_discover_options",
     "tdoms_execute_workflow",
     "tdoms_get_current_context",
+    "tdoms_get_view",
     "tdoms_get_workflow_status",
     "tdoms_list_capabilities",
     "tdoms_list_connections",
-    "tdoms_plan_workflow"
+    "tdoms_list_tool_groups",
+    "tdoms_plan_workflow",
+    "tdoms_run_tool",
+    "tdoms_set_working_context"
   ]);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -688,7 +693,7 @@ test("core profile exposes only the universal agent-neutral tools", async () => 
   await client.connect(clientTransport);
   try {
     const listed = await client.listTools();
-    assert.equal(listed.tools.length, 7);
+    assert.equal(listed.tools.length, 12);
   } finally {
     await client.close();
   }

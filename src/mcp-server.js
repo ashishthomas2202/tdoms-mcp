@@ -2,15 +2,25 @@ import crypto from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { createRequire } from "node:module";
+import { registerExtraTools } from "./extra-tools.js";
+import { readOctoSession } from "./octo-session.js";
+import { TOOL_GROUPS, groupForTool, parseGroups } from "./tool-groups.js";
+import { readWorkingContext } from "./working-context.js";
 import { CAPABILITIES, CAPABILITY_IDS, OPTION_SETS, getCapability } from "./capability-registry.js";
 import { ConnectionStore } from "./connection-store.js";
 import { TdomsClient, summarizeSystemInfo } from "./tdoms-client.js";
 
+const PACKAGE_VERSION = createRequire(import.meta.url)("../package.json").version;
+
 const INSTRUCTIONS = [
   "TD/OMS MCP connects agents to locally configured TD/OMS REST profiles.",
-  "Use tdoms_get_current_context first; it automatically selects the only saved connection and derives the TD/OMS programmer identity.",
+  "Call tdoms_get_current_context first; it selects the active connection, derives the programmer identity, and returns the saved defaults.",
+  "Save the application and task being worked on with tdoms_set_working_context so later calls can omit them.",
+  "Tools are organised in groups. Call tdoms_list_tool_groups to see them, tdoms_describe_tools to read the tools and schemas of one group, and tdoms_run_tool to call any tool that is not loaded directly.",
+  "Use tdoms_get_view for app-ready views (Kanban, work management, analytics, dependency graph); read its summary to the user.",
   "Use tdoms_discover_options before choosing site-specific TD/OMS values, then plan and execute mutations through the workflow tools.",
-  "Never ask the user to paste credentials into agent chat; credentials should be saved through the localhost UI.",
+  "Never ask the user to paste credentials into agent chat; credentials are saved through the localhost UI, `tdoms-mcp login`, or the Octo sign-in import.",
   "Tools that create, save, queue, release, process, or delete require confirm: true."
 ].join(" ");
 
@@ -72,19 +82,49 @@ export function createMcpServer({
   store = new ConnectionStore(),
   clientFactory = (connection) => new TdomsClient(connection),
   profile = process.env.TDOMS_MCP_PROFILE || "core",
-  clock = () => Date.now()
+  groups = process.env.TDOMS_MCP_GROUPS,
+  clock = () => Date.now(),
+  workflowPlans = new Map(),
+  octo = {}
 } = {}) {
   const normalizedProfile = normalizeProfile(profile);
-  const workflowPlans = new Map();
-  const server = new McpServer(
-    {
-      name: "tdoms-mcp",
-      version: "0.3.0"
-    },
-    {
-      instructions: INSTRUCTIONS
+  const loadedGroups = normalizedProfile === "full" ? parseGroups("all") : parseGroups(groups);
+  ensureOctoRefresh(store, octo);
+  const catalog = buildCatalog({ store, clientFactory, clock, workflowPlans, octo, profile: normalizedProfile });
+  const server = new McpServer({ name: "tdoms-mcp", version: PACKAGE_VERSION }, { instructions: INSTRUCTIONS });
+  const run = (definition, input) => runCatalogTool(store, definition, input);
+
+  registerCatalogTools(server, { catalog, loadedGroups, run });
+  for (const definition of catalog.values()) {
+    if (loadedGroups.includes(definition.group)) {
+      server.registerTool(definition.name, definition.config, (input, extra) => run(definition, input, extra));
     }
-  );
+  }
+  return server;
+}
+
+// Registers every tool on a private server so each definition (schema, handler,
+// group) is captured once. createMcpServer then exposes only the loaded groups.
+function buildCatalog({ store, clientFactory, clock, workflowPlans, octo, profile }) {
+  const server = new McpServer({ name: "tdoms-mcp-catalog", version: PACKAGE_VERSION });
+  const catalog = new Map();
+  const register = server.registerTool.bind(server);
+  server.registerTool = (name, config, handler) => {
+    const group = groupForTool(name);
+    if (!group) throw new Error(`Tool ${name} is not assigned to a tool group.`);
+    const inputSchema = { ...(config.inputSchema || {}) };
+    if (inputSchema.connectionId && !acceptsUndefined(inputSchema.connectionId)) {
+      inputSchema.connectionId = inputSchema.connectionId.optional().describe("Saved connection id. Omit to use the active connection.");
+    }
+    const defaultable = ["applicationCode", "taskNumber"].filter((field) => inputSchema[field] && !acceptsUndefined(inputSchema[field]));
+    for (const field of defaultable) {
+      const label = field === "applicationCode" ? "TD/OMS application code" : "TD/OMS task number";
+      inputSchema[field] = inputSchema[field].optional().describe(`${label}. Omit to use the working context default.`);
+    }
+    catalog.set(name, { name, group, config: { ...config, inputSchema }, defaultable, handler });
+    return register(name, config, handler);
+  };
+  const normalizedProfile = profile;
 
   server.registerTool(
     "tdoms_list_connections",
@@ -99,10 +139,6 @@ export function createMcpServer({
   );
 
   registerAgentTools(server, { store, clientFactory, workflowPlans, clock, profile: normalizedProfile });
-
-  if (normalizedProfile === "core") {
-    return server;
-  }
 
   server.registerTool(
     "tdoms_call_api",
@@ -795,23 +831,139 @@ export function createMcpServer({
 
   registerActionTool(server, {
     name: "tdoms_new_object_action",
-    description: "Raw TD/OMS new-object escape hatch through OMQRNO: add or location. Prefer tdoms_new_object_create, tdoms_new_source_member_create, or tdoms_new_object_location. OMQRNO/add uses task, environmentCode, newObject, newObjectLibrary, newObjectType, newAttribute, and newSource* field names; it does not use fixNumber, taskNumber, objectCode, objectLibrary, or objectAttribute. add requires confirm: true; location is read-only.",
+    description: "Raw TD/OMS new-object escape hatch through OMQRNO: add, addDataArea, addIFSObject or location. Prefer tdoms_new_object_create, tdoms_new_source_member_create, tdoms_data_area_create, tdoms_ifs_object_create, or tdoms_new_object_location. OMQRNO/add uses task, environmentCode, newObject, newObjectLibrary, newObjectType, newAttribute, and newSource* field names; it does not use fixNumber, taskNumber, objectCode, objectLibrary, or objectAttribute. Every action except location requires confirm: true.",
     service: "OMQRNO",
-    actions: ["/add", "/location"],
+    actions: ["/add", "/addDataArea", "/addIFSObject", "/location"],
     store,
     clientFactory,
-    confirm: ({ action }) => action === "/add",
+    confirm: ({ action }) => action !== "/location",
     validateBody: validateNewObjectActionBody
   });
 
   registerFamilyTools(server, { store, clientFactory });
+  registerExtraTools(server, { store, clientFactory, ops: OPS, octo });
 
-  return server;
+  return catalog;
 }
 
-export async function startMcpServer({ store, profile } = {}) {
+function acceptsUndefined(schema) {
+  return schema.safeParse(undefined).success;
+}
+
+// Fills the connection, and a required application or task, from the working
+// context when the caller left them out, then runs the tool.
+async function runCatalogTool(store, definition, input = {}) {
+  const args = { ...input };
+  const applied = {};
+  if (definition.config.inputSchema.connectionId && !hasValue(args.connectionId)) {
+    args.connectionId = await resolveConnectionId(store, undefined);
+  }
+  if (definition.defaultable.length > 0) {
+    const defaults = await readWorkingContext(store);
+    for (const field of definition.defaultable) {
+      if (hasValue(args[field])) continue;
+      if (!hasValue(defaults[field])) {
+        throw new Error(`${definition.name} needs ${field}. Pass it, or save a default with tdoms_set_working_context.`);
+      }
+      args[field] = defaults[field];
+      applied[field] = defaults[field];
+    }
+  }
+  const response = await definition.handler(args);
+  if (Object.keys(applied).length > 0 && response?.structuredContent && typeof response.structuredContent === "object") {
+    return result({ ...response.structuredContent, defaultsApplied: applied });
+  }
+  return response;
+}
+
+function registerCatalogTools(server, { catalog, loadedGroups, run }) {
+  const toolsIn = (groupId) => [...catalog.values()].filter((definition) => definition.group === groupId);
+
+  server.registerTool("tdoms_list_tool_groups", {
+    description: "List the tool groups with what each covers, how many tools it holds, and whether its tools are loaded directly. Tools in other groups are called through tdoms_run_tool.",
+    inputSchema: {}
+  }, async () => result({
+    ok: true,
+    groups: TOOL_GROUPS.map((entry) => ({
+      ...entry,
+      toolCount: toolsIn(entry.id).length + (entry.id === "core" ? 3 : 0),
+      loaded: loadedGroups.includes(entry.id)
+    })),
+    next: "Call tdoms_describe_tools with a group to see its tools, then tdoms_run_tool to call one."
+  }));
+
+  server.registerTool("tdoms_describe_tools", {
+    description: "Describe tools from the catalog. Pass a group for a compact list of its tool names and descriptions; pass tool names to get their full input schemas before calling them.",
+    inputSchema: {
+      group: z.enum(TOOL_GROUPS.map((entry) => entry.id)).optional(),
+      tools: z.array(z.string()).max(20).optional().describe("Tool names to return full input schemas for."),
+      search: z.string().optional().describe("Only tools whose name or description contains this text.")
+    }
+  }, async ({ group, tools, search }) => {
+    if (tools?.length) {
+      const unknown = tools.filter((name) => !catalog.has(name));
+      return result({
+        ok: unknown.length === 0,
+        unknown,
+        tools: tools.filter((name) => catalog.has(name)).map((name) => {
+          const definition = catalog.get(name);
+          return {
+            name,
+            group: definition.group,
+            description: definition.config.description,
+            loaded: loadedGroups.includes(definition.group),
+            inputSchema: z.toJSONSchema(z.object(definition.config.inputSchema), { io: "input" })
+          };
+        })
+      });
+    }
+    if (!group && !search) {
+      throw new Error("Pass a group, a search text, or tool names.");
+    }
+    const needle = String(search || "").toLowerCase();
+    const matches = [...catalog.values()].filter((definition) =>
+      (!group || definition.group === group)
+      && (!needle || definition.name.toLowerCase().includes(needle) || String(definition.config.description || "").toLowerCase().includes(needle))
+    );
+    return result({
+      ok: true,
+      group,
+      count: matches.length,
+      tools: matches.map((definition) => ({ name: definition.name, group: definition.group, description: definition.config.description })),
+      next: "Call tdoms_describe_tools with tools: [names] for input schemas, then tdoms_run_tool."
+    });
+  });
+
+  server.registerTool("tdoms_run_tool", {
+    description: "Call any catalog tool by name, including tools whose group is not loaded directly. Arguments are validated against that tool's schema; read it first with tdoms_describe_tools. Tools that change TD/OMS still need confirm: true in arguments.",
+    inputSchema: {
+      tool: z.string().describe("Tool name from tdoms_describe_tools."),
+      arguments: z.record(z.string(), z.unknown()).default({})
+    }
+  }, async ({ tool, arguments: args }) => {
+    const definition = catalog.get(tool);
+    if (!definition) {
+      throw new Error(`Unknown tool: ${tool}. Use tdoms_describe_tools to find tool names.`);
+    }
+    const parsed = z.object(definition.config.inputSchema).safeParse(args || {});
+    if (!parsed.success) {
+      throw new Error(`Invalid arguments for ${tool}: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ")}`);
+    }
+    return run(definition, parsed.data);
+  });
+}
+
+function ensureOctoRefresh(store, octo) {
+  if (store && typeof store === "object" && !octoReaders.has(store)) {
+    octoReaders.set(store, octo.readSession || readOctoSession);
+  }
+}
+
+const octoReaders = new WeakMap();
+
+export async function startMcpServer({ store, profile, groups } = {}) {
   const selectedProfile = profile || process.env.TDOMS_MCP_PROFILE || "core";
-  const server = createMcpServer({ store, profile: selectedProfile });
+  const server = createMcpServer({ store, profile: selectedProfile, groups });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(`TD/OMS MCP server running on stdio (${normalizeProfile(selectedProfile)} profile).`);
@@ -828,14 +980,24 @@ function registerAgentTools(server, { store, clientFactory, workflowPlans, clock
     const connection = await store.getConnection(resolvedId);
     const systemInfo = await tdomsGet(store, resolvedId, "OMSINFO", "/system", clientFactory);
     const system = summarizeSystemInfo(systemInfo);
+    const workingContext = await readWorkingContext(store);
     return result({
       ok: true,
       connection,
       user: {
         tdomsUsername: connection.username,
-        programmerId: String(connection.username || "").toUpperCase()
+        programmerId: String(connection.username || "").toUpperCase(),
+        email: connection.email
       },
-      system
+      workingContext,
+      defaults: {
+        connectionId: resolvedId,
+        applicationCode: workingContext.applicationCode || (system.applications.length === 1 ? system.applications[0].applicationCode : undefined),
+        taskNumber: workingContext.taskNumber,
+        environmentCode: workingContext.environmentCode
+      },
+      system,
+      next: "Save the application and task being worked on with tdoms_set_working_context. Browse tools with tdoms_list_tool_groups."
     });
   });
 
@@ -859,12 +1021,13 @@ function registerAgentTools(server, { store, clientFactory, workflowPlans, clock
     recordsPerPage: z.number().int().min(1).max(50).default(50)
   }, async (input) => {
     const resolvedId = await resolveConnectionId(store, input.connectionId);
+    const defaults = await readWorkingContext(store);
     const discovered = await discoverOptions({
       store,
       clientFactory,
       connectionId: resolvedId,
       optionSet: input.optionSet,
-      context: input.context || {},
+      context: { ...(defaults.applicationCode ? { applicationCode: defaults.applicationCode } : {}), ...(input.context || {}) },
       search: input.search,
       pageNumber: input.pageNumber ?? 1,
       recordsPerPage: input.recordsPerPage ?? 50
@@ -892,6 +1055,14 @@ function registerAgentTools(server, { store, clientFactory, workflowPlans, clock
     const context = compact(input.context || {});
     const selections = compact(input.selections || {});
     const optionSelections = compact(input.optionSelections || {});
+    const defaults = await readWorkingContext(store);
+    const defaultsApplied = {};
+    for (const field of capability.requiredContext) {
+      if (!hasValue(context[field]) && !hasValue(selections[field]) && hasValue(defaults[field])) {
+        context[field] = defaults[field];
+        defaultsApplied[field] = defaults[field];
+      }
+    }
     const combined = { ...context, ...selections };
     const missing = capability.requiredContext.filter((field) => !hasValue(combined[field]));
     if (missing.length > 0) {
@@ -946,6 +1117,7 @@ function registerAgentTools(server, { store, clientFactory, workflowPlans, clock
       title: capability.title,
       expiresAt: new Date(expiresAt).toISOString(),
       preview: { execution, body },
+      defaultsApplied,
       optionSets: capability.optionSets,
       warnings: snapshot.ok ? [] : [`Current-state snapshot unavailable: ${snapshot.error}`],
       next: "Review the preview, obtain explicit user approval, then call tdoms_execute_workflow with this planId and confirm: true."
@@ -1236,9 +1408,13 @@ async function resolveConnectionId(store, requestedId) {
     return connections[0].id;
   }
   if (connections.length === 0) {
-    throw new Error("No TD/OMS connection is configured. Add one through the localhost TD/OMS MCP UI.");
+    throw new Error("No TD/OMS connection is configured. Add one with `tdoms-mcp ui` or `tdoms-mcp login`, or import the Octo sign-in with tdoms_connection_import_octo.");
   }
-  throw new Error(`Multiple TD/OMS connections are configured. Choose connectionId: ${connections.map((connection) => `${connection.name} (${connection.id})`).join(", ")}`);
+  const { activeConnectionId } = await readWorkingContext(store);
+  if (activeConnectionId && connections.some((connection) => connection.id === activeConnectionId)) {
+    return activeConnectionId;
+  }
+  throw new Error(`Multiple TD/OMS connections are configured. Pass connectionId or set activeConnectionId with tdoms_set_working_context: ${connections.map((connection) => `${connection.name} (${connection.id})`).join(", ")}`);
 }
 
 function resolveExecution(capability, values) {
@@ -1679,13 +1855,29 @@ async function loginAndSave(store, connectionId, clientFactory = (connection) =>
   }
 
   const client = clientFactory(connection);
-  const token = await client.login();
+  const token = connection.password === undefined && connection.source === "octo"
+    ? await refreshOctoToken(store, connection)
+    : await client.login();
   await store.saveToken(connection.id, token);
   await store.updateStatus(connection.id, {
     lastStatus: "login-ok",
     lastLoginAt: new Date().toISOString()
   });
   return { connection, client, token };
+}
+
+// A connection imported from Octo has no saved password. When its token stops
+// working, pick up the token Octo wrote after the user signed in again.
+async function refreshOctoToken(store, connection) {
+  const session = await (octoReaders.get(store) || readOctoSession)();
+  const sameServer = session.found
+    && String(session.host).toLowerCase() === String(connection.host).toLowerCase()
+    && String(session.port) === String(connection.port)
+    && String(session.library).toLowerCase() === String(connection.library).toLowerCase();
+  if (!sameServer || !session.accessToken || session.tokenExpired === true || session.accessToken === connection.token) {
+    throw new Error("The TD/OMS session imported from Octo is no longer valid. Sign in to Octo again, or save a password for this connection with `tdoms-mcp login`.");
+  }
+  return session.accessToken;
 }
 
 function registerActionTool(server, { name, description, service, actions, store, clientFactory, confirm, validateBody }) {
@@ -2769,3 +2961,18 @@ function result(structuredContent) {
     structuredContent
   };
 }
+
+const OPS = Object.freeze({
+  result,
+  requireConfirmation,
+  compact,
+  hasValue,
+  tdomsPost,
+  tdomsGet,
+  tdomsFailure,
+  queryDatabase,
+  extractRecords,
+  readSourcePage,
+  buildImpactPath,
+  resolveConnectionId
+});

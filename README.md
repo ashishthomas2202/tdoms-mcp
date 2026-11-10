@@ -31,13 +31,7 @@ After a global installation, start the compact agent-neutral profile:
 tdoms-mcp mcp
 ```
 
-Start the complete named-tool profile:
-
-```shell
-tdoms-mcp mcp --profile full
-```
-
-The equivalent environment setting is `TDOMS_MCP_PROFILE=core` or `TDOMS_MCP_PROFILE=full`. `core` is the default.
+The `core` profile keeps the tool list small and reaches every other tool through the catalog; see [Tool Groups](#tool-groups).
 
 ## Agent Configuration
 
@@ -68,7 +62,7 @@ Restart or reload the agent's MCP servers after changing the configuration.
 
 ## Agent Skill
 
-The package includes a portable developer skill at `skills/tdoms-mcp-routing`. Its `SKILL.md` teaches agents how to select core, full-profile, or Octo tools; discover site-specific values; perform guarded task, source, compile, checkout, promote, transfer, branch, and approval workflows; and verify final TD/OMS state.
+The package includes a portable developer skill at `skills/tdoms-mcp-routing`. Its `SKILL.md` teaches agents how to find tools by group; discover site-specific values; perform guarded task, source, compile, checkout, promote, transfer, branch, and approval workflows; and verify final TD/OMS state.
 
 The CLI and local UI can install the complete skill folder for detected IBM Bob, Codex, Claude Code, VS Code Copilot, Kiro, and Gemini CLI installations. The skill contains no credentials, connection profiles, organization-specific values, or personal information. Runtime tool schemas and values returned by the connected TD/OMS server remain authoritative.
 
@@ -130,19 +124,55 @@ Client installation never copies TD/OMS passwords or tokens into agent configura
 
 MCP and skill installation are separate on purpose: the MCP provides live TD/OMS tools, while the skill teaches an agent how to route requests and perform guarded change-management workflows. Install both for the complete experience.
 
-## Core Workflow
+## Tool Groups
 
-The default profile exposes seven tools:
+Tools are grouped so an agent loads a small list and still reaches everything. The default `core` profile loads 12 tools:
 
-- `tdoms_list_connections`
-- `tdoms_get_current_context`
-- `tdoms_list_capabilities`
-- `tdoms_discover_options`
-- `tdoms_plan_workflow`
-- `tdoms_execute_workflow`
-- `tdoms_get_workflow_status`
+- `tdoms_list_connections`, `tdoms_get_current_context`, `tdoms_set_working_context`
+- `tdoms_list_capabilities`, `tdoms_discover_options`
+- `tdoms_plan_workflow`, `tdoms_execute_workflow`, `tdoms_get_workflow_status`
+- `tdoms_get_view`
+- `tdoms_list_tool_groups`, `tdoms_describe_tools`, `tdoms_run_tool`
 
-Call `tdoms_get_current_context` first. When one connection exists, it is selected automatically and the saved TD/OMS username becomes the default programmer ID. Octo sign-in context is not required.
+Every other tool belongs to one of these groups:
+
+| Group | Covers |
+| --- | --- |
+| `connection` | Saved connections, login, token refresh, Octo sign-in import, system and license info, user context |
+| `tasks` | Tasks, task comments and labels |
+| `requests` | Requests |
+| `objects` | Objects, solutions, components, connection lists, new objects, data areas, IFS objects, object templates |
+| `source` | Source and IFS check, read, save, patch and compare |
+| `build` | Build queue, compile results and errors, compile overrides, spooled files |
+| `transfer` | Checkout, promote, transfer, branches, version conflicts, managed deployments, remote jobs |
+| `insight` | Logs, dashboards, impact and dependency analysis, Kanban data, tracker records |
+| `admin` | Data dictionary, saved searches, user options, database queries, raw REST access, IBM i data conversions |
+
+An agent calls `tdoms_list_tool_groups`, reads one group with `tdoms_describe_tools`, and calls any tool with `tdoms_run_tool`. Schemas are fetched only for the tools about to be used.
+
+To load groups as directly callable tools, name them at startup:
+
+```shell
+tdoms-mcp mcp --groups tasks,source
+```
+
+The equivalent environment setting is `TDOMS_MCP_GROUPS=tasks,source`. `tdoms-mcp mcp --profile full` (or `TDOMS_MCP_PROFILE=full`) loads every group; use it only for clients without a tool budget. `tdoms_call_api` in the `admin` group remains an escape hatch for documented endpoints. All tools that can change TD/OMS require explicit confirmation.
+
+## Working Context And Defaults
+
+Call `tdoms_get_current_context` first. When one connection exists it is selected automatically, and the saved TD/OMS username becomes the default programmer ID.
+
+`tdoms_set_working_context` saves the active connection, application, task, request, environment and transfer path. After that, calls may omit `connectionId`, and tools that require an application or task fall back to the saved values and report them as `defaultsApplied`. The context is stored in the local data directory and shared by every agent on the machine.
+
+## Signing In
+
+Credentials never pass through agent chat. Use one of:
+
+- `tdoms-mcp ui`: the local web page.
+- `tdoms-mcp login --host <host> --port <port> --username <user>`: prompts for the password in the terminal, or reads `TDOMS_MCP_PASSWORD` for unattended setup. Nothing is saved unless the sign-in succeeds.
+- `tdoms-mcp import-octo --confirm`, or the `tdoms_connection_import_octo` tool: reuses the TD/OMS server and session of the Octo extension when it is signed in on the same machine. Run it without `--confirm` to preview. When the imported token expires, sign in to Octo again and the next call picks up the new token, or save a password with `tdoms-mcp login`.
+
+## Discovery And Planned Changes
 
 Use `tdoms_discover_options` for both site-specific choices and structured reads. It supports workflow choices such as environments, programmers, paths, transfer targets, templates, reasons, conflicts, and user options. It also replaces extension views with task, request, component, source, queue, compile, history, log, spool, tracker, dependency, and dashboard reads. Task reads default to the current programmer; pass `context.allUsers: true` only when a broader search is intended.
 
@@ -156,11 +186,28 @@ For a mutation:
 
 Plans expire after ten minutes. Execution re-reads relevant TD/OMS state and rejects stale plans. A plan can execute only once.
 
-## Full Profile
+## Views For Apps And Agents
 
-The `full` profile exposes 226 tools: the seven universal tools plus the existing task, request, solution, source, object, connection-list, compile, transfer, checkout, promote, branch, spool, log, remote-job, comment, label, user-option, analysis, dashboard, tracker, and administration tools.
+`tdoms_get_view` returns Work Management, Kanban, analytics, dependency graph, build queue and transfer history as UI-neutral data. Each response has a `widget` (`board`, `table`, `stats` or `graph`) that an app renders its own way, and a plain-language `summary` an agent can relay. Cards and rows carry suggested follow-up tool calls. The shapes are documented in [docs/view-models.md](docs/view-models.md).
 
-All tools that can change TD/OMS require explicit confirmation. `tdoms_call_api` remains available in `full` as an advanced escape hatch for documented endpoints.
+## Embedding In An App
+
+The package exports its building blocks, so a desktop app can host the server in-process on any MCP transport:
+
+```js
+import { createMcpServer, ConnectionStore } from "tdoms-mcp";
+
+const server = createMcpServer({ store: new ConnectionStore(), groups: "tasks,source" });
+await server.connect(transport);
+```
+
+Apps and agents that cannot launch a local process can use Streamable HTTP:
+
+```shell
+tdoms-mcp http --port 3738
+```
+
+The endpoint is `http://127.0.0.1:3738/mcp`. Every request needs `Authorization: Bearer <token>`; the token comes from `TDOMS_MCP_HTTP_TOKEN` or is generated once into the data directory as `http-token`. The listener refuses non-loopback hosts unless `TDOMS_MCP_HTTP_ALLOW_REMOTE=1` is set, because it serves plain HTTP; put a TLS proxy in front before exposing it.
 
 ## CLI Reference
 
@@ -175,7 +222,12 @@ tdoms-mcp install-skill <id> --scope user --confirm
 tdoms-mcp install-detected-skills --scope user --confirm
                                           Install skills for all compatible agents
 tdoms-mcp mcp                             Start the core stdio MCP server
-tdoms-mcp mcp --profile full              Start the complete tool profile
+tdoms-mcp mcp --groups tasks,source       Start core plus the named tool groups
+tdoms-mcp mcp --profile full              Start with every tool group loaded
+tdoms-mcp http [--port 3738]              Start the Streamable HTTP MCP server
+tdoms-mcp groups                          List the tool groups
+tdoms-mcp login --host ... --username ... Save a connection and sign in from the terminal
+tdoms-mcp import-octo --confirm           Reuse the Octo extension's signed-in session
 tdoms-mcp smoke                           Check local configuration without connecting
 tdoms-mcp secure-storage                  Harden the local data directory
 tdoms-mcp --help                          Show command help

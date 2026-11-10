@@ -13,12 +13,26 @@
 
 ## Runtime Profiles
 
-The standalone server has two profiles:
+Every tool belongs to one group. The server loads the `core` group and any groups named at startup; every other tool stays reachable through `tdoms_run_tool`.
 
-- `core`: 7 agent-neutral tools. Prefer this for broad client compatibility and limited tool budgets.
-- `full`: 226 named tools in the audited release. Prefer this for typed direct actions, specialized reads, and developer diagnostics.
+- `core` profile (default): 12 tools. Prefer this for broad client compatibility and limited tool budgets.
+- `core` plus groups, for example `--groups tasks,source`: adds those groups as directly callable tools.
+- `full` profile: every group loaded directly. Prefer this only for clients without a tool budget.
 
-Counts are a release snapshot, not an API contract. Inspect the live MCP tool list and schemas before acting.
+| Group | Covers |
+| --- | --- |
+| `core` | Context, working-context defaults, discovery, planned workflows, views, and the tool catalog. |
+| `connection` | Saved connections, login, token refresh, Octo sign-in import, system and license info, user context. |
+| `tasks` | Tasks, task comments and labels. |
+| `requests` | Requests. |
+| `objects` | Objects, solutions, components, connection lists, new objects, data areas, IFS objects, object templates. |
+| `source` | Source and IFS check, read, save, patch, and compare. |
+| `build` | Build queue, compile results and errors, compile overrides, spooled files. |
+| `transfer` | Checkout, promote, transfer, branches, version conflicts, managed deployments, remote jobs. |
+| `insight` | Logs, dashboards, impact and dependency analysis, Kanban data, tracker records. |
+| `admin` | Data dictionary, saved searches, user options, database queries, raw REST access, IBM i data conversions. |
+
+Counts are a release snapshot, not an API contract. Inspect `tdoms_list_tool_groups` and live schemas before acting.
 
 ## Core Interface
 
@@ -31,6 +45,11 @@ Counts are a release snapshot, not an API contract. Inspect the live MCP tool li
 | `tdoms_plan_workflow` | Create a read-only mutation preview and ten-minute plan. |
 | `tdoms_execute_workflow` | Revalidate and execute one approved plan. |
 | `tdoms_get_workflow_status` | Read plan state and execution result. |
+| `tdoms_set_working_context` | Save or clear the default connection, application, task, request, environment, and path. |
+| `tdoms_get_view` | Return a view as a renderable widget plus a plain-language summary. |
+| `tdoms_list_tool_groups` | List tool groups, their sizes, and which are loaded. |
+| `tdoms_describe_tools` | List the tools of a group, or return input schemas for named tools. |
+| `tdoms_run_tool` | Call any catalog tool by name with validated arguments. |
 
 ## Discovery Option Sets
 
@@ -103,9 +122,21 @@ Prefer the most specific tool whose schema matches the operation.
 
 Specific typed tools should outrank family action tools. Family action tools should outrank `tdoms_call_api`.
 
+## Octo 1.6 Additions
+
+These named tools cover what Octo `1.6` added after the original audit:
+
+- Object templates: `tdoms_object_template_add`, `tdoms_object_template_change`, `tdoms_object_template_copy`, `tdoms_object_template_delete`.
+- New objects: `tdoms_data_area_create`, `tdoms_ifs_object_create`.
+- Source: `tdoms_check_source` (metadata only) and `tdoms_save_source_checked` (change check, 4,000-line pages, failed-page reporting, `forceSave`).
+- Sign-in and identity: `tdoms_connection_octo_status`, `tdoms_connection_import_octo`, `tdoms_user_context`.
+- IBM i data: `tdoms_ibmi_convert` for CCSID 37 text, packed decimal, and zoned decimal.
+
+The Octo sign-in import reads the session Octo shares on the same machine. It cannot read a session created by another user or on another machine.
+
 ## Octo Extension Comparison
 
-The extension audit was performed against Octo TD/OMS `1.5.1260701`. Its 95 tools were grouped as follows:
+The original extension audit was performed against Octo TD/OMS `1.5.1260701`. Its 95 tools were grouped as follows:
 
 | Extension group | Count | Standalone relationship |
 | --- | ---: | --- |
@@ -124,7 +155,7 @@ Do not describe this as visual parity. It provides TD/OMS data and change-manage
 
 | Octo view intent | Core discovery or full named read |
 | --- | --- |
-| Work Management | `tasks`, `requests`; `tdoms_task_search`, `tdoms_request_search` |
+| Work Management | `tdoms_get_view` `workManagement`; `tasks`, `requests`; `tdoms_task_search`, `tdoms_request_search` |
 | Branches | `branchesPaths`; `tdoms_branch_search`, `tdoms_branch_get` |
 | Task Editor | `tdoms_task_details` or task-related option sets |
 | Component Editor / Components | `components`, `taskObjects`; object/component detail tools |
@@ -132,9 +163,10 @@ Do not describe this as visual parity. It provides TD/OMS data and change-manage
 | Source Editor | `source`; `tdoms_read_source_all` |
 | Spool source/files | `spoolFiles`; spool list/fetch tools |
 | Build Queue | `buildQueue`; build-queue tools |
-| Analytics | `dashboards`; dashboard and analysis tools |
+| Analytics | `tdoms_get_view` `analytics`; `dashboards`; dashboard and analysis tools |
+| Kanban | `tdoms_get_view` `kanban`, built from task status rather than an Octo Kanban provider |
 | Connection List | `connectionLists`; connection-list tools |
-| Dependency Graph | `dependencies`; analysis tools |
+| Dependency Graph | `tdoms_get_view` `dependencyGraph`; `dependencies`; analysis tools |
 | Transfer History | `transferHistory`; transfer-history tools |
 | Log History / Details | `logs`; log tools |
 | Tracker | `trackerRecords`; tracker tools |
@@ -144,7 +176,7 @@ Do not describe this as visual parity. It provides TD/OMS data and change-manage
 ## Intentional Exclusions
 
 - Octo mail notification is not a TD/OMS change-management operation.
-- Generic hashing, UUID, Base64, JSON, URL, time, byte-size, EBCDIC, and packed-decimal utilities are not duplicated.
+- Generic hashing, UUID, Base64, JSON, URL, time, and byte-size utilities are not duplicated. EBCDIC, packed-decimal, and zoned-decimal conversions are provided by `tdoms_ibmi_convert`.
 - Tracker server administration remains Octo-only without a documented TD/OMS endpoint.
 - UI-only navigation and editor state are not controlled.
 - Site-specific behavior without an authoritative API choice is returned as unsupported instead of guessed.

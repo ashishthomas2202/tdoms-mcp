@@ -18,16 +18,30 @@ Use the standalone MCP as the primary automation surface. It talks to the config
 1. Inspect the tools actually available in the current agent session. Runtime tool schemas override this skill if names or inputs differ.
 2. Call `tdoms_list_connections`.
 3. If exactly one connection exists, omit `connectionId` where the schema permits and call `tdoms_get_current_context`.
-4. If several connections exist, select only from the returned profiles. Ask the user to choose when the request does not identify one.
-5. If no connection exists, direct the user to save and test one through `tdoms-mcp ui`. Never request a password, token, or certificate contents in chat.
+4. If several connections exist, the active connection saved in the working context is used. When none is saved, select only from the returned profiles, ask the user to choose when the request does not identify one, and save the choice with `tdoms_set_working_context`.
+5. If no connection exists, check `tdoms_connection_octo_status` through `tdoms_run_tool`. When Octo is signed in on this machine, offer `tdoms_connection_import_octo`. Otherwise direct the user to `tdoms-mcp ui` or `tdoms-mcp login`. Never request a password, token, or certificate contents in chat.
 6. Treat `user.programmerId` from current context as the default identity for "my" records. Do not ask for a programmer ID unless the user is reassigning work, selecting another programmer, or the server cannot derive one.
+7. Once the user names the application or task they are working on, save it with `tdoms_set_working_context`. Later calls may then omit `connectionId`, and tools that require `applicationCode` or `taskNumber` fall back to the saved values and report them in `defaultsApplied`. Clear a value with `null` when the user moves on.
+
+## Find Tools By Group
+
+The tool list is grouped so that only the `core` group is loaded by default. Do not guess tool names.
+
+1. Call `tdoms_list_tool_groups` to see the groups: `core`, `connection`, `tasks`, `requests`, `objects`, `source`, `build`, `transfer`, `insight`, and `admin`.
+2. Call `tdoms_describe_tools` with a `group` (or `search`) for a compact list of names and descriptions.
+3. Call `tdoms_describe_tools` with `tools: [names]` to read input schemas for only the tools about to be used.
+4. Call the tool directly when its group is loaded; otherwise call `tdoms_run_tool` with the tool name and `arguments`. Confirmation rules are unchanged: mutations still need `confirm: true` inside `arguments`.
+
+## Show Views To The User
+
+Use `tdoms_get_view` for Work Management, Kanban, analytics, dependency graph, build queue, and transfer history. Each response carries a `summary` to relay in plain language and a `widget` (`board`, `table`, `stats`, or `graph`) that a host app can render. Relay the summary and the few rows that matter; do not paste the widget JSON to the user. Card and row `actions` are suggested follow-up tool calls, not completed work.
 
 ## Choose the Surface
 
-- Prefer the seven `core` tools for portable agent workflows and small tool budgets.
+- Prefer the `core` tools for portable agent workflows and small tool budgets.
 - Use `tdoms_discover_options` for both choices and structured reads that replace Octo views.
 - Use `tdoms_plan_workflow` and `tdoms_execute_workflow` whenever the requested mutation appears in `tdoms_list_capabilities`.
-- Use a `full` named tool when no core capability exists or when a typed tool gives safer inputs, richer diagnostics, or a complete read workflow.
+- Use a named tool from another group when no core capability exists or when a typed tool gives safer inputs, richer diagnostics, or a complete read workflow.
 - Use Octo tools only when the user explicitly needs an Octo panel/editor or when the standalone MCP lacks the required TD/OMS or Octo-cloud operation.
 - Do not use `tdoms_call_api` until named and planned tools have been ruled out and the endpoint and body are documented for the connected TD/OMS version.
 
@@ -62,9 +76,9 @@ Follow this sequence for every supported core mutation:
 
 Plans expire after ten minutes, execute once, and are rejected if state or selected options change. Re-discover and replan instead of trying to force a stale plan.
 
-## Full-Profile Mutation Workflow
+## Named-Tool Mutation Workflow
 
-Some full-profile actions, including task creation, source save, compile, connection-list processing, and several branch or request actions, are not represented by a core plan id.
+Some named-tool actions, including task creation, source save, compile, connection-list processing, and several branch or request actions, are not represented by a core plan id.
 
 1. Read current state and discover choices first.
 2. Prefer a typed named tool over an `*_action` tool or raw API call.
@@ -82,6 +96,7 @@ Some full-profile actions, including task creation, source save, compile, connec
 - Do not broaden to all users, all applications, or unfiltered database queries without a user need.
 - Do not claim that an Octo wizard or view launcher completed work. It only opened UI.
 - If Octo user context reports sign-in required but standalone reads succeed, continue through the standalone MCP and describe the Octo session as separate or stale.
+- Save source with `tdoms_save_source_checked` and pass the `lastChangeDate` from the last read as `expectedLastChangeDate`. Use `forceSave: true` only when the user accepts overwriting other edits. When a save reports `failedPage`, run `tdoms_check_source` before retrying.
 - Never expose saved connection metadata beyond what the task requires. Never print passwords, JWTs, master keys, CA contents, local credential files, or personal filesystem paths.
 
 ## Finish With Evidence
