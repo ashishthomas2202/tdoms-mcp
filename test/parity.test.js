@@ -346,3 +346,23 @@ test("IBM i conversions round-trip", () => {
   assert.throws(() => packedToNumber("12G"), /hexadecimal/);
   assert.throws(() => textToEbcdic("€"), /no CCSID 37 mapping/);
 });
+
+test("build queue and transfer history views read the fields TD/OMS returns", async () => {
+  const { call } = createHarness({
+    postHandler: ({ service, body }) => {
+      if (service !== "OMRDBA") return undefined;
+      const table = JSON.stringify(body);
+      return table.includes("OMXCreateObjectMonitorExtended")
+        ? { records: [{ objectCode: "DEMOPGM", objectType: "*PGM", memberCode: "DEMOPGM", processingStatus: "*COMP", createStatus: "*NORM", jobName: "DEMOJOB", jobNumber: "123456", fixNumber: "T1001" }], totalNumberOfRecords: 1 }
+        : { records: [{ transferCode: "TRF1", objectCode: "DEMOPGM", objectType: "*PGM", fromEnvironment: "DEV", toEnvironment: "TST", errorIndicator: "", jobName: "DEMOJOB", jobNumber: "123457" }], totalNumberOfRecords: 1 };
+    }
+  });
+  const queue = await call("tdoms_get_view", { view: "buildQueue" });
+  assert.deepEqual(queue.widget.rows[0].cells, { objectCode: "DEMOPGM", objectType: "*PGM", memberCode: "DEMOPGM", processingStatus: "*COMP", createStatus: "*NORM", job: "123456/DEMOJOB", fixNumber: "T1001", environmentCode: "" });
+  assert.equal(queue.summary, "1 build queue row: 1 *COMP.");
+
+  const history = await call("tdoms_get_view", { view: "transferHistory" });
+  assert.equal(history.widget.rows[0].cells.fromEnvironment, "DEV");
+  assert.equal(history.widget.rows[0].cells.job, "123457/DEMOJOB");
+  assert.equal(history.widget.columns.some((column) => column.key === "fixNumber" || column.id === "fixNumber"), false);
+});

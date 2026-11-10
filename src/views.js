@@ -126,12 +126,12 @@ export function buildDependencyGraphView(response, { context = {} } = {}) {
   });
 }
 
-export function buildRecordTableView(viewId, title, records, { context = {}, total, fields, noun = "row", statusField } = {}) {
+export function buildRecordTableView(viewId, title, records, { context = {}, total, fields, noun = "row", statusField, statusFallback = "(no status)" } = {}) {
   const rows = records.map((record, index) => ({
     id: String(index + 1),
     cells: Object.fromEntries(fields.map(([key]) => [key, text(record[key])]))
   }));
-  const statusText = statusField && rows.length > 0 ? `: ${listCounts(countBy(records, (record) => text(record[statusField]) || "(no status)"))}` : "";
+  const statusText = statusField && rows.length > 0 ? `: ${listCounts(countBy(records, (record) => text(record[statusField]) || statusFallback))}` : "";
   return view(viewId, title, { type: "table", columns: columns(...fields), rows }, context, {
     counts: { shown: rows.length, total: total ?? rows.length },
     summary: rows.length === 0 ? `No ${noun}s match.` : `${countLabel(rows.length, total, noun)}${statusText}.`

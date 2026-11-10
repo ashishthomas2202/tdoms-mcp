@@ -119,8 +119,8 @@ export function registerExtraTools(server, { store, clientFactory, ops, octo = {
       context.memberCode && { field: "memberCode", value: context.memberCode, operator: "EQ" }
     ].filter(Boolean);
     const spec = input.view === "buildQueue"
-      ? { table: "OMXCreateObjectMonitorExtended", title: "Build Queue", noun: "build queue row", statusField: "statusDescription", fields: [["objectCode", "Object"], ["objectType", "Type"], ["memberCode", "Member"], ["statusDescription", "Status"], ["compileStatus", "Compile status"], ["qualifiedJobName", "Job"], ["fixNumber", "Task"]] }
-      : { table: "OMXObjectTransferHistory", title: "Transfer History", noun: "transfer", fields: [["transferCode", "Transfer"], ["objectCode", "Object"], ["objectType", "Type"], ["memberCode", "Member"], ["versionNumber", "Version"], ["systemDate", "Date"], ["fixNumber", "Task"]] };
+      ? { table: "OMXCreateObjectMonitorExtended", title: "Build Queue", noun: "build queue row", statusField: "processingStatus", fields: [["objectCode", "Object"], ["objectType", "Type"], ["memberCode", "Member"], ["processingStatus", "Status"], ["createStatus", "Create status"], ["job", "Job"], ["fixNumber", "Task"], ["environmentCode", "Environment"]] }
+      : { table: "OMXObjectTransferHistory", title: "Transfer History", noun: "transfer", statusField: "errorIndicator", statusFallback: "ok", fields: [["transferCode", "Transfer"], ["objectCode", "Object"], ["objectType", "Type"], ["memberCode", "Member"], ["versionNumber", "Version"], ["fromEnvironment", "From"], ["toEnvironment", "To"], ["systemDate", "Date"], ["errorIndicator", "Error"], ["job", "Job"]] };
     const response = await ops.queryDatabase(store, id, {
       table: spec.table,
       fieldSelections: objectSelections,
@@ -130,11 +130,17 @@ export function registerExtraTools(server, { store, clientFactory, ops, octo = {
     }, clientFactory);
     return result({
       ok: true,
-      ...buildRecordTableView(input.view, spec.title, ops.extractRecords(response), { context, total: totalOf(response), fields: spec.fields, noun: spec.noun, statusField: spec.statusField }),
+      ...buildRecordTableView(input.view, spec.title, ops.extractRecords(response).map(withJob), { context, total: totalOf(response), fields: spec.fields, noun: spec.noun, statusField: spec.statusField, statusFallback: spec.statusFallback }),
       source: { ...source, kind: `OMRDBA/${spec.table}` },
       generatedAt: new Date().toISOString()
     });
   });
+
+  // TD/OMS returns the job as separate number and name fields.
+  function withJob(record) {
+    const job = [record?.jobNumber, record?.jobName].map((part) => String(part ?? "").trim()).filter(Boolean).join("/");
+    return { ...record, job };
+  }
 
   async function readPages(id, query, input) {
     const perPage = input.recordsPerPage ?? 50;
