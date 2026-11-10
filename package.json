@@ -1,6 +1,6 @@
 {
   "name": "tdoms-mcp",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Agent-neutral MCP server for TD/OMS change-management workflows.",
   "type": "module",
   "license": "MIT",
@@ -32,7 +32,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "tdoms-mcp": "./src/index.js"
+    "tdoms-mcp": "src/index.js"
   },
   "scripts": {
     "mcp": "node src/index.js mcp",
