@@ -488,7 +488,7 @@ export function renderPage() {
       var local = octo.localSession || {};
       if (account.signedIn) {
         $("#octo-account-card").innerHTML = '<div class="card-head"><div><h2>Octo account</h2><div class="sub">Only the API key is kept, encrypted on this machine</div></div>' + chip("ok", "Signed in") + '</div>'
-          + '<div class="card-body"><dl class="kv"><dt>User</dt><dd>' + escapeHtml(account.username || account.email || "") + '</dd><dt>Server</dt><dd class="mono">' + escapeHtml(account.serverUrl || "") + '</dd><dt>Organization</dt><dd>' + escapeHtml(account.organizationName || account.organization || "Not set") + '</dd><dt>Signed in</dt><dd>' + escapeHtml(formatDate(account.signedInAt)) + '</dd></dl></div>'
+          + '<div class="card-body"><dl class="kv"><dt>User</dt><dd>' + escapeHtml(account.username || account.email || "") + '</dd><dt>Server</dt><dd class="mono">' + escapeHtml(account.serverUrl || "") + '</dd><dt>Organization</dt><dd>' + organizationControl(account) + '</dd><dt>Signed in</dt><dd>' + escapeHtml(formatDate(account.signedInAt)) + '</dd></dl></div>'
           + '<div class="card-foot"><button class="btn btn-ghost" id="octo-sign-out">' + icon("log-out") + 'Sign out</button><button class="btn btn-secondary" id="octo-probe-run">' + icon("activity") + 'Test access</button></div>';
       } else {
         $("#octo-account-card").innerHTML = '<div class="card-head"><div><h2>Octo account</h2><div class="sub">The password is used once and is not stored</div></div>' + chip("plain", "Optional") + '</div>'
@@ -508,6 +508,14 @@ export function renderPage() {
           + '<div class="card-body"><div class="note">' + escapeHtml(local.reason || "No Octo session was found on this machine.") + '</div></div>';
       }
       renderProbe();
+    }
+
+    function organizationControl(account) {
+      var list = account.organizations || [];
+      if (list.length < 2) return escapeHtml(account.organizationName || account.organization || "Not set");
+      return '<select id="octo-organization">' + (account.organizationId ? "" : '<option value="">Choose an organization</option>') + list.map(function (entry) {
+        return '<option value="' + escapeHtml(entry.id) + '"' + (entry.id === account.organizationId ? " selected" : "") + '>' + escapeHtml(entry.name || entry.urlName || entry.id) + '</option>';
+      }).join("") + '</select>';
     }
 
     function renderProbe() {
@@ -715,6 +723,10 @@ export function renderPage() {
       if (button.isConnected) button.classList.remove("loading");
     });
 
+    document.addEventListener("change", function (event) {
+      if (event.target.id !== "octo-organization" || !event.target.value) return;
+      post("/api/octo/organization", { organization: event.target.value }).then(function () { state.probe = null; notify("Organization changed"); return refresh(); }).catch(function (error) { notify(error.message, true); });
+    });
     $("#add-connection").addEventListener("click", function () { openConnectionForm(); });
     $("#show-all-clients").addEventListener("change", renderClients);
     document.querySelectorAll("[data-skill-scope]").forEach(function (button) {

@@ -179,6 +179,7 @@ TD/OMS tools only need the IBM i connection. Signing in to an Octo server as wel
 - In `tdoms-mcp ui`, open **Octo sign-in** and enter the organization URL (the address you open Octo with, for example `https://octo.example.com/org/acme`), your username or email and your password. A two-factor code is asked for when the account needs one.
 - From a terminal: `tdoms-mcp octo-login --url <organization url> --username <user or email>`. The password comes from a hidden prompt or `TDOMS_MCP_OCTO_PASSWORD`.
 - `tdoms-mcp octo-probe` runs a read-only check of what the account can see and prints counts and names only, with no secrets.
+- `tdoms-mcp octo-org <organization>` picks the organization when the account belongs to more than one and the URL did not name it. The setup page offers the same choice.
 - `tdoms-mcp octo-status` shows the saved account and `tdoms-mcp octo-logout` removes it.
 
 The password is used once and never stored. Only the API key the server returns is kept, encrypted in the local data directory.
@@ -242,6 +243,7 @@ tdoms-mcp login --host ... --username ... Save a connection and sign in from the
 tdoms-mcp import-octo --confirm           Reuse the Octo extension's signed-in session
 tdoms-mcp octo-login --url ... --username ...
                                           Sign in to an Octo server (optional)
+tdoms-mcp octo-org <organization>         Pick the organization for a multi-organization account
 tdoms-mcp octo-probe                      Read-only check of what the Octo account can see
 tdoms-mcp octo-status                     Show the saved Octo account
 tdoms-mcp octo-logout                     Remove the saved Octo account

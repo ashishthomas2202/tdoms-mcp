@@ -25,8 +25,8 @@ function fakeOcto({ twoFactor = false } = {}) {
     if (url.endsWith("/user/sign/in")) return body.password === "right" ? json(200, user) : json(401, { err_msg: "Invalid credentials" });
     if (url.endsWith("/security/2fa/code/verify")) return body.auth_2fa_code === "123456" ? json(200, { ...user, is_2fa_verified: true }) : json(400, { err_msg: "Wrong code" });
     if (options.headers["api-key"] !== "key-123") return json(401, { err_msg: "No key" });
-    if (url.endsWith("/ai/mcp/openapi/definitions/server")) return json(200, [{ name: "tdoms", short_id: "abc" }]);
-    if (url.endsWith("/ai/mcp/openapi/definitions/tools")) return json(200, [{ name: "getTasks" }, { name: "getRequests" }]);
+    if (url.endsWith("/ai/mcp/openapi/definitions/server")) return json(200, [{ id: "srv-1", name: "tdoms", short_id: "abc" }]);
+    if (url.endsWith("/ai/mcp/openapi/definitions/tools/criteria")) return body.mcp_server_definition_id === "srv-1" ? json(200, [{ name: "getTasks" }, { name: "getRequests" }]) : json(404, {});
     if (url.endsWith("/ai/skill/all")) return json(403, { err_msg: "Not allowed" });
     return json(404, {});
   };
@@ -74,6 +74,11 @@ test("signs in, stores only the API key encrypted, probes and signs out", async 
   assert.deepEqual(probe.checks.map((check) => [check.id, check.ok, check.count ?? check.status]), [["serverDefinitions", true, 1], ["toolDefinitions", true, 2], ["skills", false, 403]]);
   assert.doesNotMatch(JSON.stringify(probe), /key-123/);
   assert.equal(calls.at(-1).headers["organization-id"], "org-1");
+  assert.deepEqual(probe.checks[1].perServer, [{ server: "tdoms", count: 2 }]);
+
+  assert.equal((await accounts.setOrganization("other")).organizationId, "org-2");
+  assert.equal((await accounts.get({ includeSecrets: true })).apiKey, "key-123");
+  await assert.rejects(accounts.setOrganization("missing"), /Choose one of: acme, other/);
 
   await accounts.clear();
   assert.equal((await accounts.get()).signedIn, false);

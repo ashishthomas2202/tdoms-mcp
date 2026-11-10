@@ -11,6 +11,7 @@ const API_VERSION_PATH = "api/v1";
 const ACCOUNT_FILE = "octo.json";
 const API_KEY_SECRET = "octo:apiKey";
 const DEFAULT_TIMEOUT_MS = 20000;
+const MAX_PROBED_SERVERS = 60;
 
 // Accepts "https://octo.example.com/org/acme", "https://octo.example.com" or a
 // full API address, and returns the pieces the REST calls need.
@@ -106,8 +107,9 @@ export class OctoClient {
     return this.request("GET", "ai/mcp/openapi/definitions/server");
   }
 
-  listToolDefinitions() {
-    return this.request("GET", "ai/mcp/openapi/definitions/tools");
+  // Tool definitions are read per server definition.
+  listToolDefinitions(serverDefinitionId) {
+    return this.request("POST", "ai/mcp/openapi/definitions/tools/criteria", { mcp_server_definition_id: serverDefinitionId });
   }
 
   listSkills() {
@@ -187,18 +189,35 @@ export async function probeOcto({ accounts, fetchImpl }) {
 
   const client = new OctoClient({ apiBase: account.apiBase, apiKey: account.apiKey, organizationId: account.organizationId, fetchImpl });
   const checks = [];
-  for (const [id, label, run] of [
-    ["serverDefinitions", "MCP server definitions", () => client.listServerDefinitions()],
-    ["toolDefinitions", "MCP tool definitions", () => client.listToolDefinitions()],
-    ["skills", "Agent skills", () => client.listSkills()]
-  ]) {
+  const check = async (id, label, run) => {
     try {
       const items = asList(await run());
       checks.push({ id, label, ok: true, count: items.length, names: items.map(itemName).filter(Boolean).slice(0, 50), fields: fieldNames(items[0]) });
+      return items;
     } catch (error) {
       checks.push({ id, label, ok: false, status: error.status, error: error.message });
+      return [];
     }
+  };
+
+  const servers = await check("serverDefinitions", "MCP server definitions", () => client.listServerDefinitions());
+  if (servers.length > 0) {
+    const perServer = [];
+    await check("toolDefinitions", "MCP tool definitions", async () => {
+      const tools = [];
+      for (const server of servers.slice(0, MAX_PROBED_SERVERS)) {
+        const serverId = server?.id || server?._id;
+        if (!serverId) continue;
+        const found = asList(await client.listToolDefinitions(serverId));
+        perServer.push({ server: itemName(server), count: found.length });
+        tools.push(...found);
+      }
+      return tools;
+    });
+    const toolCheck = checks.at(-1);
+    if (toolCheck.ok) toolCheck.perServer = perServer;
   }
+  await check("skills", "Agent skills", () => client.listSkills());
   return {
     ok: checks.every((check) => check.ok),
     serverUrl: account.serverUrl,
@@ -237,6 +256,18 @@ export class OctoAccountStore {
       await atomicWriteFile(this.filePath, `${JSON.stringify(account, null, 2)}\n`, { mode: 0o600 });
     });
     await this.store.secrets.setSecret(API_KEY_SECRET, apiKey);
+  }
+
+  // Picks which of the account's organizations later requests are made for.
+  async setOrganization(idOrName) {
+    const account = await this.get({ includeSecrets: true });
+    if (!account.signedIn) throw new Error("Not signed in to Octo.");
+    const wanted = String(idOrName || "").trim().toLowerCase();
+    const match = (account.organizations || []).find((entry) => [entry.id, entry.name, entry.urlName].some((value) => String(value || "").toLowerCase() === wanted));
+    if (!match) throw new Error(`Organization not found. Choose one of: ${(account.organizations || []).map((entry) => entry.urlName || entry.name).join(", ") || "none listed"}.`);
+    const { apiKey, signedIn, ...rest } = account;
+    await this.save({ ...rest, organization: match.urlName || match.name, organizationId: match.id, organizationName: match.name }, apiKey);
+    return this.get();
   }
 
   async clear() {

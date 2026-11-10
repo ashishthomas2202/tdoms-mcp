@@ -120,7 +120,7 @@ export function registerExtraTools(server, { store, clientFactory, ops, octo = {
     ].filter(Boolean);
     const spec = input.view === "buildQueue"
       ? { table: "OMXCreateObjectMonitorExtended", title: "Build Queue", noun: "build queue row", statusField: "processingStatus", fields: [["objectCode", "Object"], ["objectType", "Type"], ["memberCode", "Member"], ["processingStatus", "Status"], ["createStatus", "Create status"], ["job", "Job"], ["fixNumber", "Task"], ["environmentCode", "Environment"]] }
-      : { table: "OMXObjectTransferHistory", title: "Transfer History", noun: "transfer", statusField: "errorIndicator", statusFallback: "ok", fields: [["transferCode", "Transfer"], ["objectCode", "Object"], ["objectType", "Type"], ["memberCode", "Member"], ["versionNumber", "Version"], ["fromEnvironment", "From"], ["toEnvironment", "To"], ["systemDate", "Date"], ["errorIndicator", "Error"], ["job", "Job"]] };
+      : { table: "OMXObjectTransferHistory", title: "Transfer History", noun: "transfer", fields: [["transferCode", "Transfer"], ["objectCode", "Object"], ["objectType", "Type"], ["memberCode", "Member"], ["versionNumber", "Version"], ["fromEnvironment", "From"], ["toEnvironment", "To"], ["systemDate", "Date"], ["errorIndicator", "Error"], ["job", "Job"]] };
     const response = await ops.queryDatabase(store, id, {
       table: spec.table,
       fieldSelections: objectSelections,

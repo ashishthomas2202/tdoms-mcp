@@ -97,6 +97,15 @@ export function createWebApp({
     }
   });
 
+  app.post("/api/octo/organization", async (req, res, next) => {
+    try {
+      await requireOctoAccounts().setOrganization(req.body?.organization);
+      res.json({ ok: true, octo: await octoStatus() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/octo/sign-out", async (_req, res, next) => {
     try {
       await requireOctoAccounts().clear();

@@ -167,6 +167,13 @@ async function main() {
     return;
   }
 
+  if (command === "octo-org") {
+    const organization = process.argv[3];
+    if (!organization) throw new Error("Organization name is required. Run `tdoms-mcp octo-status` to list the organizations of the account.");
+    console.log(JSON.stringify(await new OctoAccountStore(store).setOrganization(organization), null, 2));
+    return;
+  }
+
   if (command === "octo-status") {
     console.log(JSON.stringify(await new OctoAccountStore(store).get(), null, 2));
     return;
@@ -208,6 +215,7 @@ Usage:
   tdoms-mcp login --host <host> --port <port> --username <user> [--library OMS] [--name <name>]
   tdoms-mcp import-octo [--username <user>] --confirm
   tdoms-mcp octo-login --url <organization url> --username <user or email>
+  tdoms-mcp octo-org <organization>
   tdoms-mcp octo-status | octo-probe | octo-logout
   tdoms-mcp smoke
   tdoms-mcp secure-storage
