@@ -39,12 +39,14 @@ export async function atomicWriteFile(filePath, data, { mode = 0o600 } = {}) {
 export async function withFileLock(filePath, operation, {
   timeoutMs = 10000,
   staleMs = 30000,
-  retryMs = 20
+  retryMs = 20,
+  privateDirectory = true
 } = {}) {
   const lockPath = `${filePath}.lock`;
   const token = `${process.pid}:${crypto.randomUUID()}`;
   const startedAt = Date.now();
-  await ensurePrivateDirectory(path.dirname(filePath));
+  if (privateDirectory) await ensurePrivateDirectory(path.dirname(filePath));
+  else await fs.mkdir(path.dirname(filePath), { recursive: true });
 
   while (true) {
     try {

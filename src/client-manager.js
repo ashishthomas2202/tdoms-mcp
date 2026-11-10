@@ -1,30 +1,38 @@
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { applyEdits, modify, parse } from "jsonc-parser";
+import { ZipFile } from "yazl";
 import { atomicWriteFile, withFileLock } from "./storage-utils.js";
 
 const execFileAsync = promisify(execFile);
 const SERVER_NAME = "tdoms";
+const SKILL_NAME = "tdoms-mcp-routing";
 const DEFAULT_SERVER_ENTRY = fileURLToPath(new URL("./index.js", import.meta.url));
+const DEFAULT_SKILL_ROOT = fileURLToPath(new URL(`../skills/${SKILL_NAME}`, import.meta.url));
 
 export class ClientManager {
   constructor({
     env = process.env,
     platform = process.platform,
     homedir = os.homedir(),
+    workspace = process.cwd(),
     nodeCommand = process.execPath,
     serverEntry = DEFAULT_SERVER_ENTRY,
+    skillRoot = DEFAULT_SKILL_ROOT,
     runner = runExecutable
   } = {}) {
     this.env = env;
     this.platform = platform;
     this.homedir = homedir;
+    this.workspace = path.resolve(workspace);
     this.nodeCommand = nodeCommand;
     this.serverEntry = serverEntry;
+    this.skillRoot = skillRoot;
     this.runner = runner;
     this.runtime = describeRuntime(platform, env);
   }
@@ -36,6 +44,7 @@ export class ClientManager {
       const detectedByConfig = await anyPathExists(definition.configPaths);
       const configured = await isConfigured(definition);
       const detected = Boolean(executable || detectedByConfig || await anyPathExists(definition.appCandidates));
+      const skill = await inspectSkill(definition.skill, this.skillRoot);
       return {
         id: definition.id,
         name: definition.name,
@@ -48,9 +57,89 @@ export class ClientManager {
         strategy: definition.strategy,
         environment: this.runtime,
         restartRequired: definition.restartRequired,
-        status: configured ? "configured" : detected ? "detected" : "not-detected"
+        status: configured ? "configured" : detected ? "detected" : "not-detected",
+        skill
       };
     }));
+  }
+
+  async installSkill(id, { confirm = false, scope = "user" } = {}) {
+    if (confirm !== true) {
+      throw new Error("Refusing to install an agent skill without confirm: true.");
+    }
+    if (!["user", "workspace"].includes(scope)) {
+      throw new Error("Skill scope must be either user or workspace.");
+    }
+
+    const definition = (await this.#definitions()).find((item) => item.id === id);
+    if (!definition) throw new Error(`Unsupported MCP client: ${id}`);
+    if (!definition.skill.supported) {
+      throw new Error(`${definition.name} does not have a verified filesystem skill installer. ${definition.skill.guidance}`.trim());
+    }
+    const detected = Boolean(
+      await firstExistingFile(definition.executableCandidates)
+      || await anyPathExists(definition.configPaths)
+      || await anyPathExists(definition.appCandidates)
+    );
+    if (!detected) throw new Error(`${definition.name} is not installed in ${this.runtime.label}.`);
+
+    const targets = skillTargets(definition.skill, scope);
+    const results = [];
+    for (const target of targets) {
+      results.push({
+        ...target,
+        ...await installSkillDirectory(this.skillRoot, target.path, this.platform)
+      });
+    }
+    return {
+      ok: true,
+      clientId: definition.id,
+      clientName: definition.name,
+      scope,
+      skillName: SKILL_NAME,
+      skillPath: results[0].path,
+      skillPaths: results.map((result) => result.path),
+      backupPath: results[0].backupPath,
+      backupPaths: results.map((result) => result.backupPath).filter(Boolean),
+      targets: results,
+      installed: true,
+      current: true,
+      restartRequired: definition.skill.restartRequired
+    };
+  }
+
+  async createSkillArchive() {
+    if (!await pathExists(path.join(this.skillRoot, "SKILL.md"))) {
+      throw new Error(`Bundled skill is incomplete: ${this.skillRoot}`);
+    }
+    return createZipArchive(this.skillRoot);
+  }
+
+  async installDetectedSkills({ confirm = false, scope = "user" } = {}) {
+    if (confirm !== true) {
+      throw new Error("Refusing to install agent skills without confirm: true.");
+    }
+    if (!["user", "workspace"].includes(scope)) {
+      throw new Error("Skill scope must be either user or workspace.");
+    }
+    const clients = await this.listClients();
+    const targets = clients.filter((client) => client.detected && client.skill.supported && !client.skill[scope].current);
+    const results = [];
+    for (const client of targets) {
+      try {
+        results.push(await this.installSkill(client.id, { confirm: true, scope }));
+      } catch (error) {
+        results.push({ ok: false, clientId: client.id, clientName: client.name, error: error.message });
+      }
+    }
+    return {
+      ok: results.every((result) => result.ok),
+      environment: this.runtime,
+      scope,
+      installed: results.filter((result) => result.ok).length,
+      failed: results.filter((result) => !result.ok).length,
+      results
+    };
   }
 
   async installDetected({ confirm = false } = {}) {
@@ -157,6 +246,7 @@ export class ClientManager {
     const claudeDesktopCodeVersions = await extensionDirectories(paths.claudeDesktopCodeRoot);
     const codexExtension = newestMatching(vscodeExtensions, "openai.chatgpt-");
     const claudeExtension = newestMatching(vscodeExtensions, "anthropic.claude-code-");
+    const copilotExtension = newestMatching(vscodeExtensions, "github.copilot-");
     const claudeStorePackage = newestMatching(windowsPackages, "Claude_");
     const claudeDesktopCodeVersion = newestMatching(claudeDesktopCodeVersions, "");
     const claudeDesktopConfig = claudeStorePackage
@@ -164,7 +254,7 @@ export class ClientManager {
       : paths.claudeDesktopConfig;
     const commandCandidates = async (name, fixed = []) => compact([...fixed, await findOnPath(name, this.platform, this.env)]);
 
-    return [
+    const definitions = [
       {
         id: "ibm-bob",
         name: "IBM Bob",
@@ -313,6 +403,261 @@ export class ClientManager {
         restartRequired: true
       }
     ];
+    return definitions.map((definition) => ({
+      ...definition,
+      skill: skillDefinition(definition.id, this.homedir, this.workspace, {
+        hasVsCodeCodex: Boolean(codexExtension),
+        hasVsCodeClaude: Boolean(claudeExtension),
+        hasVsCodeCopilot: Boolean(copilotExtension)
+      })
+    }));
+  }
+}
+
+function skillDefinition(clientId, home, workspace, {
+  hasVsCodeCodex = false,
+  hasVsCodeClaude = false,
+  hasVsCodeCopilot = false
+} = {}) {
+  const definitions = {
+    "ibm-bob": {
+      userPath: path.join(home, ".bob", "skills", SKILL_NAME),
+      workspacePath: path.join(workspace, ".bob", "skills", SKILL_NAME),
+      restartRequired: false,
+      guidance: "IBM Bob must be in Advanced mode before the skill appears."
+    },
+    codex: {
+      userPath: path.join(home, ".agents", "skills", SKILL_NAME),
+      workspacePath: path.join(workspace, ".agents", "skills", SKILL_NAME),
+      restartRequired: true,
+      guidance: "Start a new Codex session after installation."
+    },
+    "claude-code": {
+      userPath: path.join(home, ".claude", "skills", SKILL_NAME),
+      workspacePath: path.join(workspace, ".claude", "skills", SKILL_NAME),
+      restartRequired: true,
+      guidance: "Start a new Claude Code session after installation."
+    },
+    vscode: {
+      userPath: path.join(home, ".copilot", "skills", SKILL_NAME),
+      workspacePath: path.join(workspace, ".github", "skills", SKILL_NAME),
+      restartRequired: true,
+      guidance: "Reload the VS Code window or start a new chat after installation."
+    },
+    "gemini-cli": {
+      userPath: path.join(home, ".gemini", "skills", SKILL_NAME),
+      workspacePath: path.join(workspace, ".gemini", "skills", SKILL_NAME),
+      restartRequired: false,
+      guidance: "Run /skills reload in an existing Gemini CLI session."
+    },
+    kiro: {
+      userPath: path.join(home, ".kiro", "skills", SKILL_NAME),
+      workspacePath: path.join(workspace, ".kiro", "skills", SKILL_NAME),
+      restartRequired: false,
+      guidance: "Kiro detects skills in its Agent Steering & Skills panel and as slash commands."
+    }
+  };
+  if (clientId === "vscode") {
+    const userTargets = compact([
+      hasVsCodeCodex && { label: "Codex", path: path.join(home, ".agents", "skills", SKILL_NAME) },
+      hasVsCodeClaude && { label: "Claude Code", path: path.join(home, ".claude", "skills", SKILL_NAME) },
+      hasVsCodeCopilot && { label: "GitHub Copilot", path: path.join(home, ".copilot", "skills", SKILL_NAME) }
+    ]);
+    const workspaceTargets = compact([
+      hasVsCodeCodex && { label: "Codex", path: path.join(workspace, ".agents", "skills", SKILL_NAME) },
+      hasVsCodeClaude && { label: "Claude Code", path: path.join(workspace, ".claude", "skills", SKILL_NAME) },
+      hasVsCodeCopilot && { label: "GitHub Copilot", path: path.join(workspace, ".github", "skills", SKILL_NAME) }
+    ]);
+    if (!userTargets.length) {
+      return {
+        supported: false,
+        guidance: "No compatible Codex, Claude Code, or GitHub Copilot extension was detected in VS Code."
+      };
+    }
+    return {
+      supported: true,
+      userTargets,
+      workspaceTargets,
+      restartRequired: true,
+      guidance: `Installs for detected VS Code agents: ${userTargets.map((target) => target.label).join(", ")}.`
+    };
+  }
+  if (definitions[clientId]) return { supported: true, ...definitions[clientId] };
+  if (clientId === "claude-desktop") {
+    return {
+      supported: false,
+      downloadable: true,
+      guidance: "Download the ZIP, then use Customize > Skills > Create skill > Upload a skill in Claude Desktop."
+    };
+  }
+  return { supported: false, guidance: "No verified native Agent Skills directory is available for this client." };
+}
+
+async function inspectSkill(definition, sourceRoot) {
+  if (!definition.supported) {
+    return { supported: false, downloadable: definition.downloadable === true, guidance: definition.guidance };
+  }
+  const inspect = async (target) => {
+    const installed = await pathExists(path.join(target.path, "SKILL.md"));
+    return {
+      ...target,
+      installed,
+      current: installed && await skillFilesMatch(sourceRoot, target.path)
+    };
+  };
+  const inspectScope = async (scope) => {
+    const targets = await Promise.all(skillTargets(definition, scope).map(inspect));
+    return {
+      path: targets[0]?.path,
+      paths: targets.map((target) => target.path),
+      installed: targets.length > 0 && targets.every((target) => target.installed),
+      installedAny: targets.some((target) => target.installed),
+      current: targets.length > 0 && targets.every((target) => target.current),
+      targets
+    };
+  };
+  return {
+    supported: true,
+    guidance: definition.guidance,
+    restartRequired: definition.restartRequired,
+    user: await inspectScope("user"),
+    workspace: await inspectScope("workspace")
+  };
+}
+
+function skillTargets(definition, scope) {
+  const configured = definition[`${scope}Targets`];
+  if (configured?.length) {
+    const seen = new Set();
+    return configured.filter((target) => {
+      const normalized = path.resolve(target.path).toLowerCase();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  }
+  const skillPath = definition[`${scope}Path`];
+  return skillPath ? [{ label: definition.label || "Agent", path: skillPath }] : [];
+}
+
+async function installSkillDirectory(source, destination, platform) {
+  if (!await pathExists(path.join(source, "SKILL.md"))) {
+    throw new Error(`Bundled skill is incomplete: ${source}`);
+  }
+  if (path.basename(destination) !== SKILL_NAME) {
+    throw new Error(`Refusing to write an unexpected skill destination: ${destination}`);
+  }
+
+  const parent = path.dirname(destination);
+  await fs.mkdir(parent, { recursive: true });
+  return withFileLock(path.join(parent, `.${SKILL_NAME}.install`), async () => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const staged = path.join(parent, `.${SKILL_NAME}.${process.pid}.${crypto.randomUUID()}.tmp`);
+    const rollback = path.join(parent, `.${SKILL_NAME}.${process.pid}.${crypto.randomUUID()}.rollback`);
+    const existed = await pathExists(destination);
+    const backupPath = existed ? `${destination}.tdoms-backup-${stamp}` : undefined;
+    if (platform === "win32") {
+      if (backupPath) await fs.cp(destination, backupPath, { recursive: true, errorOnExist: true });
+      try {
+        await fs.cp(source, destination, { recursive: true, force: true });
+        if (!await skillFilesMatch(source, destination)) {
+          throw new Error("The copied skill did not pass verification.");
+        }
+        return { backupPath };
+      } catch (error) {
+        if (backupPath) {
+          try {
+            await fs.cp(backupPath, destination, { recursive: true, force: true });
+          } catch (restoreError) {
+            throw new Error(`${error.message} The backup remains at ${backupPath} because automatic restoration failed: ${restoreError.message}`);
+          }
+        } else {
+          await fs.rm(destination, { recursive: true, force: true }).catch(() => {});
+        }
+        throw error;
+      }
+    }
+
+    try {
+      await fs.cp(source, staged, { recursive: true, errorOnExist: true });
+      if (backupPath) await fs.cp(destination, backupPath, { recursive: true, errorOnExist: true });
+      if (existed) await renameDirectory(destination, rollback);
+      await renameDirectory(staged, destination);
+      await fs.rm(rollback, { recursive: true, force: true });
+      return { backupPath };
+    } catch (error) {
+      await fs.rm(staged, { recursive: true, force: true }).catch(() => {});
+      if (await pathExists(rollback) && !await pathExists(destination)) {
+        try {
+          await renameDirectory(rollback, destination);
+        } catch (restoreError) {
+          throw new Error(`${error.message} The previous skill remains at ${rollback} because automatic restoration failed: ${restoreError.message}`);
+        }
+      }
+      throw error;
+    }
+  }, { privateDirectory: false });
+}
+
+async function skillFilesMatch(source, destination) {
+  async function compare(sourceDirectory, destinationDirectory) {
+    const entries = await fs.readdir(sourceDirectory, { withFileTypes: true });
+    for (const entry of entries) {
+      const sourcePath = path.join(sourceDirectory, entry.name);
+      const destinationPath = path.join(destinationDirectory, entry.name);
+      if (entry.isDirectory()) {
+        if (!await pathExists(destinationPath) || !await compare(sourcePath, destinationPath)) return false;
+      } else if (entry.isFile()) {
+        try {
+          const [sourceContent, destinationContent] = await Promise.all([
+            fs.readFile(sourcePath),
+            fs.readFile(destinationPath)
+          ]);
+          if (!sourceContent.equals(destinationContent)) return false;
+        } catch {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    }
+    return true;
+  }
+  return compare(source, destination).catch(() => false);
+}
+
+async function createZipArchive(source) {
+  const zip = new ZipFile();
+  async function addDirectory(directory, relative = "") {
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const relativePath = path.posix.join(relative, entry.name);
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) await addDirectory(absolutePath, relativePath);
+      else if (entry.isFile()) zip.addFile(absolutePath, path.posix.join(SKILL_NAME, relativePath));
+      else throw new Error(`Unsupported entry in skill directory: ${absolutePath}`);
+    }
+  }
+  await addDirectory(source);
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    zip.outputStream.on("data", (chunk) => chunks.push(chunk));
+    zip.outputStream.on("error", reject);
+    zip.outputStream.on("end", () => resolve(Buffer.concat(chunks)));
+    zip.end();
+  });
+}
+
+async function renameDirectory(source, destination) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await fs.rename(source, destination);
+      return;
+    } catch (error) {
+      if (!["EACCES", "EBUSY", "EPERM"].includes(error.code) || attempt === 19) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10 + attempt * 5));
+    }
   }
 }
 

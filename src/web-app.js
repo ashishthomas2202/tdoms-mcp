@@ -40,6 +40,20 @@ export function createWebApp({ store = new ConnectionStore(), clientManager = ne
     }
   });
 
+  app.get("/api/skill/archive", async (_req, res, next) => {
+    try {
+      const archive = await clientManager.createSkillArchive();
+      res.set({
+        "content-type": "application/zip",
+        "content-disposition": "attachment; filename=tdoms-mcp-routing.zip",
+        "content-length": archive.length
+      });
+      res.send(archive);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/clients/:id/install", async (req, res, next) => {
     try {
       const result = await clientManager.installClient(req.params.id, { confirm: req.body?.confirm === true });
@@ -52,6 +66,30 @@ export function createWebApp({ store = new ConnectionStore(), clientManager = ne
   app.post("/api/clients/install-detected", async (req, res, next) => {
     try {
       const result = await clientManager.installDetected({ confirm: req.body?.confirm === true });
+      res.status(result.ok ? 200 : 207).json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/clients/:id/install-skill", async (req, res, next) => {
+    try {
+      const result = await clientManager.installSkill(req.params.id, {
+        confirm: req.body?.confirm === true,
+        scope: req.body?.scope || "user"
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/clients/install-detected-skills", async (req, res, next) => {
+    try {
+      const result = await clientManager.installDetectedSkills({
+        confirm: req.body?.confirm === true,
+        scope: req.body?.scope || "user"
+      });
       res.status(result.ok ? 200 : 207).json(result);
     } catch (error) {
       next(error);

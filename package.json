@@ -1,6 +1,6 @@
 {
   "name": "tdoms-mcp",
-  "version": "0.7.0",
+  "version": "0.8.3",
   "description": "Agent-neutral MCP server for TD/OMS change-management workflows.",
   "type": "module",
   "license": "MIT",
@@ -37,6 +37,8 @@
     "secure-storage": "node src/index.js secure-storage",
     "clients": "node src/index.js clients",
     "clients:install": "node src/index.js install-detected --confirm",
+    "skills": "node src/index.js skills",
+    "skills:install": "node src/index.js install-detected-skills --scope user --confirm",
     "test": "node --test"
   },
   "dependencies": {
@@ -44,6 +46,7 @@
     "express": "^4.19.2",
     "jsonc-parser": "^3.3.1",
     "lucide-static": "^1.24.0",
+    "yazl": "^3.3.1",
     "zod": "^4.1.12"
   },
   "engines": {

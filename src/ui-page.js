@@ -68,7 +68,7 @@ export function renderPage() {
     .details-fields { display: grid; gap: 12px; margin-top: 12px; }
     details:not([open]) .details-fields { display: none; }
     .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 2px; }
-    .button { min-height: 36px; border: 1px solid #1f6d59; border-radius: 6px; padding: 7px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: #2f7d67; color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .button { min-height: 36px; border: 1px solid #1f6d59; border-radius: 6px; padding: 7px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: #2f7d67; color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; text-decoration: none; }
     .button:hover { background: #276b58; }
     .button.secondary { background: #fff; border-color: #bdc8d0; color: #283642; }
     .button.secondary:hover { background: #f5f7f8; }
@@ -94,6 +94,12 @@ export function renderPage() {
     .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
     .clients-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 14px; }
     .clients-toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
+    .segmented { display: inline-flex; border: 1px solid #bdc8d0; border-radius: 6px; overflow: hidden; background: #fff; }
+    .segmented button { min-height: 34px; border: 0; border-right: 1px solid #d5dde3; padding: 6px 10px; background: #fff; color: #53616d; font-size: 11px; font-weight: 700; }
+    .segmented button:last-child { border-right: 0; }
+    .segmented button.active { background: #eaf3f0; color: #215f50; }
+    .path-stack { display: grid; gap: 3px; }
+    .path-label { display: inline-block; width: 38px; color: #52616d; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-weight: 700; }
     .section-heading { font-size: 15px; font-weight: 750; }
     .environment-label { margin-top: 3px; color: #687582; font-size: 11px; }
     .filter { display: flex; align-items: center; gap: 7px; color: #66737f; font-size: 12px; }
@@ -198,6 +204,11 @@ export function renderPage() {
           <div><div class="section-heading">MCP clients</div><div class="environment-label" id="environment-label">Detecting environment</div></div>
           <div class="clients-toolbar-actions">
             <label class="filter"><input type="checkbox" id="show-all-clients">Show products not detected</label>
+            <div class="segmented" aria-label="Skill installation scope">
+              <button type="button" class="active" data-skill-scope="user">User skill</button>
+              <button type="button" data-skill-scope="workspace">Workspace skill</button>
+            </div>
+            <button class="button secondary" id="install-detected-skills"><img src="/icons/book-open.svg" alt="">Install skills</button>
             <button class="button" id="install-detected"><img src="/icons/plug-zap.svg" alt="">Configure detected</button>
           </div>
         </div>
@@ -217,7 +228,7 @@ export function renderPage() {
   </dialog>
 
   <script>
-    const state = { connections: [], clients: [], pendingAction: null };
+    const state = { connections: [], clients: [], pendingAction: null, skillScope: "user" };
     const form = document.querySelector("#connection-form");
     const connectionList = document.querySelector("#connections-list");
     const clientList = document.querySelector("#clients-list");
@@ -271,18 +282,29 @@ export function renderPage() {
       const clients = state.clients.filter(function (item) { return showAll || item.detected; });
       const detected = state.clients.filter(function (item) { return item.detected; }).length;
       const pending = state.clients.filter(function (item) { return item.detected && item.installable && !item.configured; }).length;
+      const pendingSkills = state.clients.filter(function (item) { return item.detected && item.skill && item.skill.supported && !item.skill[state.skillScope].current; }).length;
       const environment = state.clients[0] && state.clients[0].environment;
       document.querySelector("#environment-label").textContent = environment ? environment.label + " | " + environment.note : "Current environment";
       document.querySelector("#install-detected").disabled = pending === 0;
+      document.querySelector("#install-detected-skills").disabled = pendingSkills === 0;
       document.querySelector("#client-count").textContent = detected + " detected";
       if (!clients.length) {
         clientList.innerHTML = '<div class="empty">No supported MCP clients detected</div>';
         return;
       }
       clientList.innerHTML = clients.map(function (item) {
-        const action = item.configured ? "Update" : "Install";
-        const button = item.installable ? '<button class="button secondary" data-install="' + escapeHtml(item.id) + '"><img src="/icons/plug-zap.svg" alt="">' + action + '</button>' : '';
-        return '<div class="client-row"><div class="row-main"><div class="row-identity"><div class="row-icon"><img src="/icons/terminal.svg" alt=""></div><div><div class="row-name">' + escapeHtml(item.name) + '</div><div class="row-description">' + escapeHtml(item.description) + '</div></div></div><div class="row-actions"><span class="status ' + escapeHtml(item.status) + '">' + escapeHtml(item.status.replace("-", " ")) + '</span>' + button + '</div></div><div class="row-path">' + escapeHtml(item.configPath) + '</div></div>';
+        const mcpAction = item.configured ? "Update MCP" : "Install MCP";
+        const mcpButton = item.installable ? '<button class="button secondary" data-install="' + escapeHtml(item.id) + '"><img src="/icons/plug-zap.svg" alt="">' + mcpAction + '</button>' : '';
+        const skill = item.skill || { supported: false };
+        const scopedSkill = skill.supported ? skill[state.skillScope] : null;
+        const skillAction = scopedSkill && scopedSkill.installed ? "Update skill" : "Install skill";
+        const skillButton = skill.supported && item.detected ? '<button class="button secondary" data-install-skill="' + escapeHtml(item.id) + '" title="' + escapeHtml(skill.guidance) + '"><img src="/icons/book-open.svg" alt="">' + skillAction + '</button>' : '';
+        const skillDownload = skill.downloadable && item.detected ? '<button class="button secondary" data-install-upload-skill="' + escapeHtml(item.id) + '" title="' + escapeHtml(skill.guidance) + '"><img src="/icons/download.svg" alt="">Install skill</button>' : '';
+        const unavailableStatus = !skill.supported && !skill.downloadable && item.detected ? '<span class="status not-detected" title="' + escapeHtml(skill.guidance) + '">skill unavailable</span>' : '';
+        const uploadStatus = skill.downloadable ? '<span class="status detected">upload required</span>' : '';
+        const skillStatus = scopedSkill ? '<span class="status ' + (scopedSkill.current ? 'configured' : 'detected') + '">' + (scopedSkill.current ? 'skill current' : scopedSkill.installedAny ? 'skill update' : 'skill available') + '</span>' : uploadStatus || unavailableStatus;
+        const skillPath = scopedSkill ? scopedSkill.targets.map(function (target) { return '<div><span class="path-label">Skill</span>' + escapeHtml(target.label) + ': ' + escapeHtml(target.path) + '</div>'; }).join('') : '';
+        return '<div class="client-row"><div class="row-main"><div class="row-identity"><div class="row-icon"><img src="/icons/terminal.svg" alt=""></div><div><div class="row-name">' + escapeHtml(item.name) + '</div><div class="row-description">' + escapeHtml(item.description) + '</div></div></div><div class="row-actions"><span class="status ' + escapeHtml(item.status) + '">' + escapeHtml(item.status.replace("-", " ")) + '</span>' + skillStatus + skillButton + skillDownload + mcpButton + '</div></div><div class="row-path path-stack"><div><span class="path-label">MCP</span>' + escapeHtml(item.configPath) + '</div>' + skillPath + '</div></div>';
       }).join("");
     }
 
@@ -375,9 +397,21 @@ export function renderPage() {
 
     clientList.addEventListener("click", function (event) {
       const install = event.target.closest("[data-install]");
-      if (!install) return;
-      const item = state.clients.find(function (entry) { return entry.id === install.dataset.install; });
-      openConfirmation({ title: item.configured ? "Update MCP client" : "Install MCP client", message: "A backup is created before the client configuration changes.", target: item.name, action: async function () { notify("Configuring " + item.name); const result = await request("/api/clients/" + encodeURIComponent(item.id) + "/install", { method: "POST", body: JSON.stringify({ confirm: true }) }); notify(result.restartRequired ? item.name + " configured. Restart the client." : item.name + " configured."); await refresh(); } });
+      const installSkill = event.target.closest("[data-install-skill]");
+      const installUploadSkill = event.target.closest("[data-install-upload-skill]");
+      if (install) {
+        const item = state.clients.find(function (entry) { return entry.id === install.dataset.install; });
+        openConfirmation({ title: item.configured ? "Update MCP client" : "Install MCP client", message: "A backup is created before the client configuration changes.", target: item.name, action: async function () { notify("Configuring " + item.name); const result = await request("/api/clients/" + encodeURIComponent(item.id) + "/install", { method: "POST", body: JSON.stringify({ confirm: true }) }); notify(result.restartRequired ? item.name + " configured. Restart the client." : item.name + " configured."); await refresh(); } });
+      }
+      if (installSkill) {
+        const item = state.clients.find(function (entry) { return entry.id === installSkill.dataset.installSkill; });
+        const scopedSkill = item.skill[state.skillScope];
+        openConfirmation({ title: scopedSkill.installed ? "Update agent skill" : "Install agent skill", message: "The complete TD/OMS workflow skill is installed for every compatible detected agent in this product. Existing skill files are backed up first.", target: item.name + " | " + state.skillScope + " | " + scopedSkill.targets.map(function (target) { return target.label + ": " + target.path; }).join(" | "), action: async function () { notify("Installing skill for " + item.name); const result = await request("/api/clients/" + encodeURIComponent(item.id) + "/install-skill", { method: "POST", body: JSON.stringify({ confirm: true, scope: state.skillScope }) }); notify(result.restartRequired ? item.name + " skill installed. Restart the agent session." : item.name + " skill installed."); await refresh(); } });
+      }
+      if (installUploadSkill) {
+        const item = state.clients.find(function (entry) { return entry.id === installUploadSkill.dataset.installUploadSkill; });
+        openConfirmation({ title: "Install skill in Claude Desktop", message: "Claude Desktop chat requires an account upload. Confirm to download the correctly packaged ZIP, then open Customize > Skills > Create skill > Upload a skill and select it.", target: "tdoms-mcp-routing.zip", action: async function () { const link = document.createElement("a"); link.href = "/api/skill/archive"; link.download = "tdoms-mcp-routing.zip"; document.body.appendChild(link); link.click(); link.remove(); notify("Skill ZIP downloaded. Upload it in Claude Desktop Customize > Skills."); } });
+      }
     });
 
     document.querySelectorAll(".tab").forEach(function (tab) {
@@ -389,9 +423,20 @@ export function renderPage() {
     document.querySelector("#refresh").addEventListener("click", refresh);
     document.querySelector("#clear-form").addEventListener("click", resetForm);
     document.querySelector("#show-all-clients").addEventListener("change", renderClients);
+    document.querySelectorAll("[data-skill-scope]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        state.skillScope = button.dataset.skillScope;
+        document.querySelectorAll("[data-skill-scope]").forEach(function (item) { item.classList.toggle("active", item === button); });
+        renderClients();
+      });
+    });
     document.querySelector("#install-detected").addEventListener("click", function () {
       const pending = state.clients.filter(function (item) { return item.detected && item.installable && !item.configured; });
       openConfirmation({ title: "Configure detected agents", message: "This adds TD/OMS only to detected agents that are not configured yet. Every existing file is backed up first.", target: pending.map(function (item) { return item.name; }).join(", "), action: async function () { notify("Configuring detected agents"); const result = await request("/api/clients/install-detected", { method: "POST", body: JSON.stringify({ confirm: true }) }); notify(result.configured + " agents configured" + (result.failed ? ", " + result.failed + " failed" : ""), Boolean(result.failed)); await refresh(); } });
+    });
+    document.querySelector("#install-detected-skills").addEventListener("click", function () {
+      const pending = state.clients.filter(function (item) { return item.detected && item.skill && item.skill.supported && !item.skill[state.skillScope].current; });
+      openConfirmation({ title: "Install detected agent skills", message: "This installs or updates the bundled TD/OMS workflow skill for the selected scope. Existing skill folders are backed up first.", target: state.skillScope + " | " + pending.map(function (item) { return item.name; }).join(", "), action: async function () { notify("Installing detected agent skills"); const result = await request("/api/clients/install-detected-skills", { method: "POST", body: JSON.stringify({ confirm: true, scope: state.skillScope }) }); notify(result.installed + " skills installed" + (result.failed ? ", " + result.failed + " failed" : ""), Boolean(result.failed)); await refresh(); } });
     });
     document.querySelector("#dialog-close").addEventListener("click", closeDialog);
     document.querySelector("#dialog-cancel").addEventListener("click", closeDialog);

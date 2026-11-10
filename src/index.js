@@ -53,6 +53,15 @@ async function main() {
     return;
   }
 
+  if (command === "skills") {
+    const clients = await clientManager.listClients();
+    console.log(JSON.stringify({
+      environment: clients[0]?.environment,
+      skills: clients.map(({ id, name, detected, skill }) => ({ id, name, detected, skill }))
+    }, null, 2));
+    return;
+  }
+
   if (command === "install-client") {
     const clientId = process.argv[3];
     if (!clientId) throw new Error("Client id is required. Run `tdoms-mcp clients` to list detected clients.");
@@ -63,6 +72,27 @@ async function main() {
 
   if (command === "install-detected") {
     const result = await clientManager.installDetected({ confirm: process.argv.includes("--confirm") });
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (command === "install-skill") {
+    const clientId = process.argv[3];
+    if (!clientId) throw new Error("Client id is required. Run `tdoms-mcp skills` to list skill targets.");
+    const result = await clientManager.installSkill(clientId, {
+      confirm: process.argv.includes("--confirm"),
+      scope: flagValue("--scope") || "user"
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === "install-detected-skills") {
+    const result = await clientManager.installDetectedSkills({
+      confirm: process.argv.includes("--confirm"),
+      scope: flagValue("--scope") || "user"
+    });
     console.log(JSON.stringify(result, null, 2));
     if (!result.ok) process.exitCode = 1;
     return;
@@ -84,12 +114,20 @@ function printHelp(write = console.log) {
 Usage:
   tdoms-mcp ui
   tdoms-mcp clients
+  tdoms-mcp skills
   tdoms-mcp install-client <id> --confirm
   tdoms-mcp install-detected --confirm
+  tdoms-mcp install-skill <id> [--scope user|workspace] --confirm
+  tdoms-mcp install-detected-skills [--scope user|workspace] --confirm
   tdoms-mcp mcp [--profile core|full]
   tdoms-mcp smoke
   tdoms-mcp secure-storage
   tdoms-mcp --help`);
+}
+
+function flagValue(name) {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
 main().catch((error) => {

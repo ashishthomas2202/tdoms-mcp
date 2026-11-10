@@ -137,6 +137,7 @@ test("uses native macOS application-support paths", async () => {
     assert.equal(bob.configPath, bobMcp);
     assert.equal(bob.detected, true);
     assert.equal(bob.configured, true);
+    assert.equal(bob.skill.user.path, path.join(root, ".bob", "skills", "tdoms-mcp-routing"));
   } finally {
     await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
@@ -188,9 +189,12 @@ test("uses documented Gemini, Zed, and OpenCode configuration shapes on Linux", 
       serverEntry: "/opt/tdoms-mcp/src/index.js"
     });
     await manager.installClient("gemini-cli", { confirm: true });
+    const geminiSkill = await manager.installSkill("gemini-cli", { confirm: true, scope: "user" });
     await manager.installClient("zed", { confirm: true });
     await manager.installClient("opencode", { confirm: true });
     assert.equal(parse(await fs.readFile(files.gemini, "utf8")).mcpServers.tdoms.command, "/usr/bin/node");
+    assert.equal(geminiSkill.skillPath, path.join(root, ".gemini", "skills", "tdoms-mcp-routing"));
+    assert.equal(await pathExists(path.join(geminiSkill.skillPath, "SKILL.md")), true);
     assert.equal(parse(await fs.readFile(files.zed, "utf8")).context_servers.tdoms.command, "/usr/bin/node");
     const openCode = parse(await fs.readFile(files.opencode, "utf8")).mcp.tdoms;
     assert.equal(openCode.type, "local");
@@ -201,6 +205,100 @@ test("uses documented Gemini, Zed, and OpenCode configuration shapes on Linux", 
   }
 });
 
+test("reports native user and workspace skill locations", async () => {
+  await withFixture(async ({ manager, options }) => {
+    const clients = Object.fromEntries((await manager.listClients()).map((client) => [client.id, client]));
+    assert.equal(clients["ibm-bob"].skill.user.path, path.join(options.homedir, ".bob", "skills", "tdoms-mcp-routing"));
+    assert.equal(clients.codex.skill.user.path, path.join(options.homedir, ".agents", "skills", "tdoms-mcp-routing"));
+    assert.equal(clients["claude-code"].skill.workspace.path, path.join(options.workspace, ".claude", "skills", "tdoms-mcp-routing"));
+    assert.deepEqual(clients.vscode.skill.user.targets.map((target) => target.label), ["Codex", "Claude Code", "GitHub Copilot"]);
+    assert.deepEqual(clients.vscode.skill.workspace.paths, [
+      path.join(options.workspace, ".agents", "skills", "tdoms-mcp-routing"),
+      path.join(options.workspace, ".claude", "skills", "tdoms-mcp-routing"),
+      path.join(options.workspace, ".github", "skills", "tdoms-mcp-routing")
+    ]);
+    assert.equal(clients["claude-desktop"].skill.supported, false);
+    assert.equal(clients["claude-desktop"].skill.downloadable, true);
+    assert.equal(clients.kiro.skill.user.path, path.join(options.homedir, ".kiro", "skills", "tdoms-mcp-routing"));
+  });
+});
+
+test("targets detected Codex and Claude extensions when GitHub Copilot is absent", async () => {
+  await withFixture(async ({ manager, paths }) => {
+    await fs.rm(paths.copilotExtension, { recursive: true, force: true });
+    const vscode = (await manager.listClients()).find((client) => client.id === "vscode");
+    assert.equal(vscode.detected, true);
+    assert.equal(vscode.skill.supported, true);
+    assert.deepEqual(vscode.skill.user.targets.map((target) => target.label), ["Codex", "Claude Code"]);
+    assert.match(vscode.skill.guidance, /Codex, Claude Code/);
+  });
+});
+
+test("does not claim VS Code skill support without a compatible agent extension", async () => {
+  await withFixture(async ({ manager, paths }) => {
+    await Promise.all([
+      fs.rm(paths.copilotExtension, { recursive: true, force: true }),
+      fs.rm(paths.codexExtension, { recursive: true, force: true }),
+      fs.rm(paths.claudeExtension, { recursive: true, force: true })
+    ]);
+    const vscode = (await manager.listClients()).find((client) => client.id === "vscode");
+    assert.equal(vscode.detected, true);
+    assert.equal(vscode.skill.supported, false);
+    assert.match(vscode.skill.guidance, /No compatible Codex, Claude Code, or GitHub Copilot/);
+  });
+});
+
+test("installs the complete bundled skill and detects that it is current", async () => {
+  await withFixture(async ({ manager, options }) => {
+    const result = await manager.installSkill("codex", { confirm: true, scope: "user" });
+    assert.equal(result.ok, true);
+    assert.equal(result.skillPath, path.join(options.homedir, ".agents", "skills", "tdoms-mcp-routing"));
+    assert.match(await fs.readFile(path.join(result.skillPath, "SKILL.md"), "utf8"), /TD\/OMS/);
+    assert.equal(await pathExists(path.join(result.skillPath, "references", "workflow-playbooks.md")), true);
+    const codex = (await manager.listClients()).find((client) => client.id === "codex");
+    assert.equal(codex.skill.user.installed, true);
+    assert.equal(codex.skill.user.current, true);
+  });
+});
+
+test("backs up an existing skill before updating it", async () => {
+  await withFixture(async ({ manager }) => {
+    const first = await manager.installSkill("ibm-bob", { confirm: true });
+    await fs.writeFile(path.join(first.skillPath, "SKILL.md"), "older local skill\n");
+    const second = await manager.installSkill("ibm-bob", { confirm: true });
+    assert.ok(second.backupPath);
+    assert.equal(await fs.readFile(path.join(second.backupPath, "SKILL.md"), "utf8"), "older local skill\n");
+    assert.match(await fs.readFile(path.join(second.skillPath, "SKILL.md"), "utf8"), /TD\/OMS/);
+  });
+});
+
+test("requires confirmation and rejects unverified skill targets", async () => {
+  await withFixture(async ({ manager }) => {
+    await assert.rejects(manager.installSkill("codex"), /confirm: true/);
+    await assert.rejects(manager.installSkill("claude-desktop", { confirm: true }), /Customize > Skills/);
+    await assert.rejects(manager.installSkill("cursor", { confirm: true }), /No verified native Agent Skills directory/);
+  });
+});
+
+test("creates a Claude Desktop compatible skill archive", async () => {
+  await withFixture(async ({ manager }) => {
+    const archive = await manager.createSkillArchive();
+    assert.equal(archive.subarray(0, 2).toString("ascii"), "PK");
+    assert.equal(archive.includes(Buffer.from("tdoms-mcp-routing/SKILL.md")), true);
+    assert.equal(archive.includes(Buffer.from("tdoms-mcp-routing/references/workflow-playbooks.md")), true);
+  });
+});
+
+test("installs skills for all detected supported agents", async () => {
+  await withFixture(async ({ manager }) => {
+    const result = await manager.installDetectedSkills({ confirm: true, scope: "workspace" });
+    assert.equal(result.ok, true);
+    assert.equal(result.installed, 5);
+    assert.equal(result.failed, 0);
+    assert.deepEqual(result.results.map((item) => item.clientId).sort(), ["claude-code", "codex", "ibm-bob", "kiro", "vscode"]);
+  });
+});
+
 async function withFixture(operation) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "tdoms-client-test-"));
   const home = path.join(root, "home");
@@ -208,6 +306,7 @@ async function withFixture(operation) {
   const local = path.join(root, "local");
   const codexExtension = path.join(home, ".vscode", "extensions", "openai.chatgpt-1.0.0-win32-x64");
   const claudeExtension = path.join(home, ".vscode", "extensions", "anthropic.claude-code-1.0.0-win32-x64");
+  const copilotExtension = path.join(home, ".vscode", "extensions", "github.copilot-1.0.0");
   const paths = {
     codexConfig: path.join(home, ".codex", "config.toml"),
     bobMcp: path.join(home, ".bob", "settings", "mcp.json"),
@@ -217,7 +316,10 @@ async function withFixture(operation) {
     claudeCodeConfig: path.join(home, ".claude.json"),
     kiroMcp: path.join(home, ".kiro", "settings", "mcp.json"),
     cursorConfig: path.join(home, ".cursor", "mcp.json"),
-    cursorApp: path.join(local, "Programs", "cursor")
+    cursorApp: path.join(local, "Programs", "cursor"),
+    copilotExtension,
+    codexExtension,
+    claudeExtension
   };
   await fs.mkdir(path.join(local, "Packages", "Claude_fixture"), { recursive: true });
   await fs.mkdir(path.join(appData, "Claude", "claude-code", "2.1.0"), { recursive: true });
@@ -229,6 +331,7 @@ async function withFixture(operation) {
     path.join(codexExtension, "bin", "windows-x86_64", "codex.exe"),
     path.join(claudeExtension, "resources", "native-binary", "claude.exe")
   ];
+  await fs.mkdir(copilotExtension, { recursive: true });
   for (const file of files) {
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, "fixture");
@@ -243,6 +346,7 @@ async function withFixture(operation) {
     env: { APPDATA: appData, LOCALAPPDATA: local, PATH: "" },
     platform: "win32",
     homedir: home,
+    workspace: path.join(root, "workspace"),
     nodeCommand: "C:\\Program Files\\nodejs\\node.exe",
     serverEntry: "C:\\tdoms-mcp\\src\\index.js"
   };
@@ -265,5 +369,14 @@ async function withFixture(operation) {
     await operation({ manager, calls, paths, options });
   } finally {
     await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+}
+
+async function pathExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
   }
 }

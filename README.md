@@ -70,7 +70,34 @@ Restart or reload the agent's MCP servers after changing the configuration.
 
 The package includes a portable developer skill at `skills/tdoms-mcp-routing`. Its `SKILL.md` teaches agents how to select core, full-profile, or Octo tools; discover site-specific values; perform guarded task, source, compile, checkout, promote, transfer, branch, and approval workflows; and verify final TD/OMS state.
 
-Agents that support `SKILL.md` folders can register that directory using their normal skill installation mechanism. The skill contains no credentials, connection profiles, organization-specific values, or personal information. Runtime tool schemas and values returned by the connected TD/OMS server remain authoritative.
+The CLI and local UI can install the complete skill folder for detected IBM Bob, Codex, Claude Code, VS Code Copilot, Kiro, and Gemini CLI installations. The skill contains no credentials, connection profiles, organization-specific values, or personal information. Runtime tool schemas and values returned by the connected TD/OMS server remain authoritative.
+
+List the native skill targets and their installation status:
+
+```shell
+tdoms-mcp skills
+```
+
+Install or update the skill for one agent. User scope makes it available across that agent's projects; workspace scope installs it only in the current project:
+
+```shell
+tdoms-mcp install-skill ibm-bob --scope user --confirm
+tdoms-mcp install-skill codex --scope user --confirm
+tdoms-mcp install-skill claude-code --scope workspace --confirm
+tdoms-mcp install-skill vscode --scope workspace --confirm
+tdoms-mcp install-skill kiro --scope user --confirm
+tdoms-mcp install-skill gemini-cli --scope user --confirm
+```
+
+Install or update the skill for every detected compatible agent:
+
+```shell
+tdoms-mcp install-detected-skills --scope user --confirm
+```
+
+The Agent Setup page in `tdoms-mcp ui` provides the same actions with User skill and Workspace skill scope controls. Existing skill folders are timestamped and backed up before replacement, concurrent installs are locked, and a failed replacement restores the prior folder. Bob users must enable Advanced mode; existing agent sessions may need to be restarted or reloaded after installation. Claude Desktop chat requires a ZIP upload to **Customize > Skills**; its row provides a correctly packaged download instead of reporting a local folder copy as installed.
+
+The **Codex** row covers the Codex desktop app, CLI, and VS Code extension through `~/.agents/skills`. Restart Codex or reload the VS Code window and start a new task if a newly installed skill is not visible. The **Visual Studio Code** skill action installs for every compatible extension it detects: Codex through `~/.agents/skills`, Claude Code through `~/.claude/skills`, and GitHub Copilot through `~/.copilot/skills`. Use `/skills` in agents that expose that menu, or invoke the skill by name in Codex and Claude Code.
 
 Detect supported local clients from the installed command:
 
@@ -100,6 +127,8 @@ IBM Bob uses its own global MCP store at `~/.bob/settings/mcp.json`; it does not
 Detection and installation are environment-local. Running the installer on Windows configures Windows agents; running it inside WSL configures only that WSL distribution; running it on macOS or Linux uses that platform's native paths. This prevents a Windows client from receiving an unusable WSL command, or the reverse. Claude has two targets: **Claude Code sessions** configures Code sessions opened from Claude Desktop or VS Code, while **Claude Desktop chat** configures regular Desktop chats.
 
 Client installation never copies TD/OMS passwords or tokens into agent configuration. It registers only the local stdio command and the `core` tool profile. Existing files are backed up, writes are atomic, invalid JSON is rejected, and failed client updates are restored.
+
+MCP and skill installation are separate on purpose: the MCP provides live TD/OMS tools, while the skill teaches an agent how to route requests and perform guarded change-management workflows. Install both for the complete experience.
 
 ## Core Workflow
 
@@ -138,8 +167,13 @@ All tools that can change TD/OMS require explicit confirmation. `tdoms_call_api`
 ```text
 tdoms-mcp ui                              Open the local connection and agent setup UI
 tdoms-mcp clients                         List detected MCP-capable agents
+tdoms-mcp skills                          List native skill targets and status
 tdoms-mcp install-client <id> --confirm   Configure one detected agent
 tdoms-mcp install-detected --confirm      Configure all detected agents
+tdoms-mcp install-skill <id> --scope user --confirm
+                                          Install a skill for one detected agent
+tdoms-mcp install-detected-skills --scope user --confirm
+                                          Install skills for all compatible agents
 tdoms-mcp mcp                             Start the core stdio MCP server
 tdoms-mcp mcp --profile full              Start the complete tool profile
 tdoms-mcp smoke                           Check local configuration without connecting
