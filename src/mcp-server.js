@@ -103,6 +103,20 @@ export function createMcpServer({
   return server;
 }
 
+// Tool counts per group, for the setup page and other callers that only need the
+// shape of the catalog. No connection is opened.
+let groupSummaryCache;
+export function toolGroupSummary() {
+  if (!groupSummaryCache) {
+    const catalog = buildCatalog({ store: {}, clientFactory: () => undefined, clock: () => Date.now(), workflowPlans: new Map(), octo: {}, profile: "full" });
+    groupSummaryCache = TOOL_GROUPS.map((entry) => ({
+      ...entry,
+      toolCount: [...catalog.values()].filter((definition) => definition.group === entry.id).length + (entry.id === "core" ? 3 : 0)
+    }));
+  }
+  return groupSummaryCache;
+}
+
 // Registers every tool on a private server so each definition (schema, handler,
 // group) is captured once. createMcpServer then exposes only the loaded groups.
 function buildCatalog({ store, clientFactory, clock, workflowPlans, octo, profile }) {

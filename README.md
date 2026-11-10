@@ -168,9 +168,20 @@ Call `tdoms_get_current_context` first. When one connection exists it is selecte
 
 Credentials never pass through agent chat. Use one of:
 
-- `tdoms-mcp ui`: the local web page.
+- `tdoms-mcp ui`: the local control plane page. Add a connection, sign in to IBM i, pick the active connection, sign in to Octo, set up agents and browse the tool groups. It only answers requests addressed to this machine.
 - `tdoms-mcp login --host <host> --port <port> --username <user>`: prompts for the password in the terminal, or reads `TDOMS_MCP_PASSWORD` for unattended setup. Nothing is saved unless the sign-in succeeds.
 - `tdoms-mcp import-octo --confirm`, or the `tdoms_connection_import_octo` tool: reuses the TD/OMS server and session of the Octo extension when it is signed in on the same machine. Run it without `--confirm` to preview. When the imported token expires, sign in to Octo again and the next call picks up the new token, or save a password with `tdoms-mcp login`.
+
+### Octo Account (Optional)
+
+TD/OMS tools only need the IBM i connection. Signing in to an Octo server as well is optional and gives access to what that server publishes for your organization, such as its MCP tool definitions and agent skills.
+
+- In `tdoms-mcp ui`, open **Octo sign-in** and enter the organization URL (the address you open Octo with, for example `https://octo.example.com/org/acme`), your username or email and your password. A two-factor code is asked for when the account needs one.
+- From a terminal: `tdoms-mcp octo-login --url <organization url> --username <user or email>`. The password comes from a hidden prompt or `TDOMS_MCP_OCTO_PASSWORD`.
+- `tdoms-mcp octo-probe` runs a read-only check of what the account can see and prints counts and names only, with no secrets.
+- `tdoms-mcp octo-status` shows the saved account and `tdoms-mcp octo-logout` removes it.
+
+The password is used once and never stored. Only the API key the server returns is kept, encrypted in the local data directory.
 
 ## Discovery And Planned Changes
 
@@ -228,6 +239,11 @@ tdoms-mcp http [--port 3738]              Start the Streamable HTTP MCP server
 tdoms-mcp groups                          List the tool groups
 tdoms-mcp login --host ... --username ... Save a connection and sign in from the terminal
 tdoms-mcp import-octo --confirm           Reuse the Octo extension's signed-in session
+tdoms-mcp octo-login --url ... --username ...
+                                          Sign in to an Octo server (optional)
+tdoms-mcp octo-probe                      Read-only check of what the Octo account can see
+tdoms-mcp octo-status                     Show the saved Octo account
+tdoms-mcp octo-logout                     Remove the saved Octo account
 tdoms-mcp smoke                           Check local configuration without connecting
 tdoms-mcp secure-storage                  Harden the local data directory
 tdoms-mcp --help                          Show command help

@@ -5,7 +5,8 @@ import { ClientManager } from "./client-manager.js";
 import { startMcpServer } from "./mcp-server.js";
 import { startWebServer } from "./web-app.js";
 import { hardenDataDirectory } from "./storage-utils.js";
-import { loginFromCli, parseFlags } from "./cli-login.js";
+import { loginFromCli, octoLoginFromCli, parseFlags } from "./cli-login.js";
+import { OctoAccountStore, probeOcto, signInToOcto } from "./octo-client.js";
 import { DEFAULT_HTTP_PORT, startHttpServer } from "./http-server.js";
 import { importOctoConnection, readOctoSession } from "./octo-session.js";
 import { TOOL_GROUPS } from "./tool-groups.js";
@@ -152,6 +153,30 @@ async function main() {
     return;
   }
 
+  if (command === "octo-login") {
+    const accounts = new OctoAccountStore(store);
+    console.log(JSON.stringify(await octoLoginFromCli({ flags, accounts, signIn: signInToOcto }), null, 2));
+    return;
+  }
+
+  if (command === "octo-status") {
+    console.log(JSON.stringify(await new OctoAccountStore(store).get(), null, 2));
+    return;
+  }
+
+  if (command === "octo-probe") {
+    const outcome = await probeOcto({ accounts: new OctoAccountStore(store) });
+    console.log(JSON.stringify(outcome, null, 2));
+    if (!outcome.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (command === "octo-logout") {
+    await new OctoAccountStore(store).clear();
+    console.log(JSON.stringify({ ok: true, signedIn: false }, null, 2));
+    return;
+  }
+
   console.error(`Unknown command: ${command}`);
   printHelp(console.error);
   process.exit(1);
@@ -173,6 +198,8 @@ Usage:
   tdoms-mcp groups
   tdoms-mcp login --host <host> --port <port> --username <user> [--library OMS] [--name <name>]
   tdoms-mcp import-octo [--username <user>] --confirm
+  tdoms-mcp octo-login --url <organization url> --username <user or email>
+  tdoms-mcp octo-status | octo-probe | octo-logout
   tdoms-mcp smoke
   tdoms-mcp secure-storage
   tdoms-mcp --help`);

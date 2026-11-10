@@ -9,6 +9,8 @@ export { TOOL_GROUPS, TOOL_GROUP_IDS, groupForTool } from "./tool-groups.js";
 export { CAPABILITIES, OPTION_SETS, getCapability } from "./capability-registry.js";
 export { WORKING_CONTEXT_FIELDS, readWorkingContext, updateWorkingContext } from "./working-context.js";
 export { readOctoSession, importOctoConnection } from "./octo-session.js";
+export { OctoClient, OctoAccountStore, parseOctoUrl, signInToOcto, probeOcto } from "./octo-client.js";
+export { createWebApp, startWebServer } from "./web-app.js";
 export {
   VIEW_IDS,
   VIEW_DESCRIPTIONS,

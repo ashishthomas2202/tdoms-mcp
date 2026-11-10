@@ -60,7 +60,7 @@ export async function loginFromCli({
   return { ok: true, connection: await store.getConnection(connection.id), active: flags["no-active"] !== true, applicationCount: system.applicationCount };
 }
 
-function promptHidden(question) {
+export function promptHidden(question) {
   if (!process.stdin.isTTY) {
     throw new Error("No terminal is attached. Set TDOMS_MCP_PASSWORD to supply the password.");
   }
@@ -77,4 +77,34 @@ function promptHidden(question) {
     });
     muted = true;
   });
+}
+
+export function promptVisible(question) {
+  if (!process.stdin.isTTY) throw new Error("No terminal is attached.");
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+// `tdoms-mcp octo-login`: optional sign-in to an Octo server. The password comes
+// from a hidden prompt or TDOMS_MCP_OCTO_PASSWORD and is not stored.
+export async function octoLoginFromCli({ flags, accounts, env = process.env, fetchImpl, promptPassword = promptHidden, promptCode = promptVisible, signIn }) {
+  const url = typeof flags.url === "string" ? flags.url : undefined;
+  const username = typeof flags.username === "string" ? flags.username : undefined;
+  if (!url || !username) {
+    throw new Error("Missing --url or --username. Example: tdoms-mcp octo-login --url https://octo.example.com/org/acme --username dev@example.com");
+  }
+  const password = env.TDOMS_MCP_OCTO_PASSWORD || await promptPassword(`Octo password for ${username}: `);
+  if (!password) throw new Error("A password is required.");
+
+  let outcome = await signIn({ url, username, password, code: typeof flags.code === "string" ? flags.code : undefined, accounts, fetchImpl });
+  if (outcome.needsCode) {
+    const code = await promptCode("Two-factor code: ");
+    outcome = await signIn({ url, username, password, code, accounts, fetchImpl });
+  }
+  return outcome;
 }
