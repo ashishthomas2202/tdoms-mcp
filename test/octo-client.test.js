@@ -126,3 +126,21 @@ test("setup page API signs in to Octo, sets the active connection and rejects ot
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("stop command shuts down a running setup page and reports when none is running", async () => {
+  const { startWebServer, stopWebServer } = await import("../src/web-app.js");
+  const store = await tempStore();
+  let stopped = false;
+  const { server } = await startWebServer({ store, clientManager: { async listClients() { return []; } }, port: 0, onStopped: () => { stopped = true; } });
+  const port = server.address().port;
+  assert.equal((await (await fetch(`http://127.0.0.1:${port}/api/overview`)).json()).canStop, true);
+
+  const outcome = await stopWebServer({ port });
+  assert.equal(outcome.stopped, true);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(stopped, true);
+  assert.equal(server.listening, false);
+
+  const again = await stopWebServer({ port });
+  assert.deepEqual([again.ok, again.running], [true, false]);
+});

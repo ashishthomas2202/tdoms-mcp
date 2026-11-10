@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 const ICON_NAMES = [
   "server", "layout-dashboard", "database", "bot", "boxes", "key-round", "refresh-cw", "plus", "pencil",
   "trash-2", "plug-zap", "book-open", "download", "check", "x", "sun", "moon", "log-in", "log-out",
-  "shield-check", "circle-alert", "star", "terminal", "activity", "import"
+  "shield-check", "circle-alert", "star", "terminal", "activity", "import", "power"
 ];
 
 let spriteCache;
@@ -257,6 +257,7 @@ export function renderPage() {
           <span class="pulse"></span>
           <div class="service-text"><div class="service-title" id="service-title">Local service</div><div class="service-detail" id="service-detail">Starting</div></div>
         </div>
+        <button class="nav-item" id="stop-service" hidden><svg class="icon"><use href="#i-power"/></svg>Stop this page</button>
         <button class="nav-item" id="theme-toggle"><svg class="icon"><use id="theme-icon" href="#i-moon"/></svg><span id="theme-label">Dark mode</span></button>
       </div>
     </aside>
@@ -405,6 +406,7 @@ export function renderPage() {
         $("#service").dataset.state = "online";
         $("#service-title").textContent = "Local service";
         $("#service-detail").textContent = "v" + state.overview.version + " on this machine";
+        $("#stop-service").hidden = !state.overview.canStop;
         renderAll();
       } catch (error) {
         $("#service").dataset.state = "offline";
@@ -737,6 +739,16 @@ export function renderPage() {
       closeConfirm();
       if (!action) return;
       try { await action(); } catch (error) { notify(error.message, true); }
+    });
+    $("#stop-service").addEventListener("click", function () {
+      openConfirmation({ title: "Stop the setup page", message: "This shuts down the local setup page. Agents keep working, because each one runs its own TD/OMS MCP server. Start the page again with: tdoms-mcp ui", target: location.host, danger: true, confirmLabel: "Stop", action: async function () {
+        await post("/api/shutdown");
+        $("#service").dataset.state = "offline";
+        $("#service-title").textContent = "Stopped";
+        $("#service-detail").textContent = "Run tdoms-mcp ui to start again";
+        $("#stop-service").hidden = true;
+        notify("Setup page stopped. You can close this tab.");
+      } });
     });
     $("#theme-toggle").addEventListener("click", function () {
       var next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";

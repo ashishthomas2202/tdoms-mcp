@@ -3,7 +3,7 @@ import { DEFAULT_HOST, DEFAULT_PORT, dataDir } from "./config.js";
 import { ConnectionStore } from "./connection-store.js";
 import { ClientManager } from "./client-manager.js";
 import { startMcpServer } from "./mcp-server.js";
-import { startWebServer } from "./web-app.js";
+import { startWebServer, stopWebServer } from "./web-app.js";
 import { hardenDataDirectory } from "./storage-utils.js";
 import { loginFromCli, octoLoginFromCli, parseFlags } from "./cli-login.js";
 import { OctoAccountStore, probeOcto, signInToOcto } from "./octo-client.js";
@@ -27,9 +27,17 @@ async function main() {
   const store = new ConnectionStore();
   const clientManager = new ClientManager();
 
+  if (command === "stop") {
+    const outcome = await stopWebServer({ port: uiPort() });
+    console.log(outcome.message);
+    if (!outcome.ok) process.exitCode = 1;
+    return;
+  }
+
   if (command === "ui") {
-    const { host, port } = await startWebServer({ store, clientManager });
+    const { host, port } = await startWebServer({ store, clientManager, port: uiPort(), onStopped: () => console.log("TD/OMS MCP UI stopped.") });
     console.log(`TD/OMS MCP UI: http://${host}:${port}`);
+    console.log("Stop it with Ctrl+C, the Stop button on the page, or `tdoms-mcp stop`.");
     console.log(`Data directory: ${dataDir()}`);
     return;
   }
@@ -186,7 +194,8 @@ function printHelp(write = console.log) {
   write(`TD/OMS MCP
 
 Usage:
-  tdoms-mcp ui
+  tdoms-mcp ui [--port 3737]
+  tdoms-mcp stop [--port 3737]
   tdoms-mcp clients
   tdoms-mcp skills
   tdoms-mcp install-client <id> --confirm
@@ -203,6 +212,11 @@ Usage:
   tdoms-mcp smoke
   tdoms-mcp secure-storage
   tdoms-mcp --help`);
+}
+
+function uiPort() {
+  const parsed = Number.parseInt(flags.port, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_PORT;
 }
 
 function flagValue(name) {

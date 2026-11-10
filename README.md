@@ -223,7 +223,8 @@ The endpoint is `http://127.0.0.1:3738/mcp`. Every request needs `Authorization:
 ## CLI Reference
 
 ```text
-tdoms-mcp ui                              Open the local connection and agent setup UI
+tdoms-mcp ui [--port 3737]                Open the local connection and agent setup UI
+tdoms-mcp stop [--port 3737]              Stop the running setup UI
 tdoms-mcp clients                         List detected MCP-capable agents
 tdoms-mcp skills                          List native skill targets and status
 tdoms-mcp install-client <id> --confirm   Configure one detected agent

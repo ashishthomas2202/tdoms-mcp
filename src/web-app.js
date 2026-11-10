@@ -22,7 +22,8 @@ export function createWebApp({
   octoAccounts = store?.secrets ? new OctoAccountStore(store) : undefined,
   octoSession = () => readOctoSession(),
   octoFetch,
-  allowRemote = process.env.TDOMS_MCP_UI_ALLOW_REMOTE === "1"
+  allowRemote = process.env.TDOMS_MCP_UI_ALLOW_REMOTE === "1",
+  onShutdown
 } = {}) {
   const app = express();
   // The page handles passwords, so it only answers requests addressed to this
@@ -46,11 +47,22 @@ export function createWebApp({
     });
   });
 
+  // Used by `tdoms-mcp stop` and the page's Stop button.
+  app.post("/api/shutdown", (_req, res) => {
+    if (!onShutdown) {
+      res.status(409).json({ error: "This setup page cannot be stopped from here." });
+      return;
+    }
+    res.json({ ok: true, stopped: true });
+    res.once("finish", () => onShutdown());
+  });
+
   app.get("/api/overview", async (_req, res, next) => {
     try {
       res.json({
         version: PACKAGE_VERSION,
         dataDir: dataDir(),
+        canStop: Boolean(onShutdown),
         context: await readWorkingContext(store),
         groups: toolGroupSummary(),
         octo: await octoStatus()
@@ -265,12 +277,41 @@ export function createWebApp({
   return app;
 }
 
-export async function startWebServer({ host = DEFAULT_HOST, port = DEFAULT_PORT, store, clientManager } = {}) {
-  const app = createWebApp({ store, clientManager });
+export async function startWebServer({ host = DEFAULT_HOST, port = DEFAULT_PORT, store, clientManager, onStopped } = {}) {
+  let server;
+  const app = createWebApp({
+    store,
+    clientManager,
+    onShutdown: () => {
+      server.close(() => onStopped?.());
+      server.closeAllConnections?.();
+    }
+  });
   return new Promise((resolve, reject) => {
-    const server = app.listen(port, host, () => {
+    server = app.listen(port, host, () => {
       resolve({ server, host, port });
     });
     server.on("error", reject);
   });
+}
+
+// Asks a running setup page to shut down. Returns { ok, running } so callers can
+// tell "stopped" from "nothing was running".
+export async function stopWebServer({ host = DEFAULT_HOST, port = DEFAULT_PORT, fetchImpl = globalThis.fetch } = {}) {
+  let response;
+  try {
+    response = await fetchImpl(`http://${host}:${port}/api/shutdown`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(5000)
+    });
+  } catch {
+    return { ok: true, running: false, message: `No setup page is running on ${host}:${port}.` };
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.stopped !== true) {
+    return { ok: false, running: true, message: body.error || `Port ${port} answered, but not as a TD/OMS MCP setup page.` };
+  }
+  return { ok: true, running: true, stopped: true, message: `Stopped the setup page on ${host}:${port}.` };
 }
