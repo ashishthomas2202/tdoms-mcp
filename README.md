@@ -196,6 +196,8 @@ For a mutation:
 4. Call `tdoms_execute_workflow` with the returned `planId` and `confirm: true`.
 5. Call `tdoms_get_workflow_status` when the operation is asynchronous.
 
+Linking a task to a tracker issue (`link-task-to-issue`) needs only the task and the issue: pass `issueKey`, `issueUrl`, `issueId`, and `issueTitle` as selections. The plan works out the tracker product id and the issue URL form from the application's existing links and shows them under `defaultsApplied`. If the application uses several tracker products, or none yet, the plan stops and lists the choices; pass `productId` to pick one. The direct `tdoms_task_link_ticket` and `tdoms_task_unlink_ticket` tools take the TD/OMS request fields by name and preview the request until called with `confirm: true`.
+
 Plans expire after ten minutes. Execution re-reads relevant TD/OMS state and rejects stale plans. A plan can execute only once.
 
 ## Views For Apps And Agents

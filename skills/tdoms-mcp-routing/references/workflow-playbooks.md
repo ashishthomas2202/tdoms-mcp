@@ -180,6 +180,10 @@ Ratification:
 - Read existing comments before add/reply/change/delete operations.
 - Discover `userOptions`; treat execution as arbitrary site-configured behavior and show the selected option and target before approval.
 - Discover tracker links/records before link or unlink.
+- Link a task to a tracker issue with `link-task-to-issue` (or `link-issue-to-task`). Pass `issueKey`, `issueUrl`, `issueId` (the tracker's own issue id) and `issueTitle` as selections. The plan maps them to the TD/OMS request fields, defaults `freeFormatProductId` and `urlToProduct` from the application's existing links when exactly one tracker product is in use, and stores `urlToItem` in the same form (web or API URL) as the existing links. It reports an existing link instead of posting again.
+- Unlink with `unlink-task-from-issue`; the plan takes the product id and stored `urlToItem` from the existing link row.
+- The link request fields are `applicationCode`, `taskNumber`, `requestNumber`, `freeFormatProductId`, `urlToItem`, `urlToProduct`, `universalUniqueId`, `disableIndicator` (`"0"`), and `remoteIssueInformation`. The unlink request takes `applicationCode`, `taskNumber`, `requestNumber`, `freeFormatProductId`, and `urlToItem`. `productCode` and `uUID` are the read-side names in `OMXRequestTaskLink`; the direct tools accept them as aliases.
+- Read a task's links with `tdoms_task_tickets` or the `trackerRecords` option set; both read `OMXRequestTaskLink` by `taskNumber`. `trackerLinks` lists the tracker products and servers already in use for an application.
 - Tracker server administration is Octo-only unless a site supplies a documented TD/OMS endpoint.
 
 ## Analytics, Dependencies, And Kanban

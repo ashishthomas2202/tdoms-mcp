@@ -169,7 +169,7 @@ Do not describe this as visual parity. It provides TD/OMS data and change-manage
 | Dependency Graph | `tdoms_get_view` `dependencyGraph`; `dependencies`; analysis tools |
 | Transfer History | `transferHistory`; transfer-history tools |
 | Log History / Details | `logs`; log tools |
-| Tracker | `trackerRecords`; tracker tools |
+| Tracker | `trackerRecords` and `trackerLinks` (both from `OMXRequestTaskLink`); `tdoms_task_tickets`; `tdoms_task_link_ticket` / `tdoms_task_unlink_ticket` |
 | Compile Result | `compileResults`; compile-result/error tools |
 | Remote Job Monitor | `remoteJobs`; remote-job tools |
 

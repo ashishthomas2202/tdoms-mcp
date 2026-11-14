@@ -54,8 +54,8 @@ const capabilities = [
   mutation("edit-branch", "Edit Branch", "openEditBranchWizard", "OMQRBR", "/change", ["branchesPaths"], ["applicationCode", "pathCode"], "OMXTransferPath"),
   mutation("fill-object-file", "Fill Object File", "openFillObjectFileWizard", "OMQRFO", "/fillObject", ["taskObjects"], ["applicationCode", "objectCode"], "OMXObjectExtended"),
   mutation("manage-label", "Manage Label", "openLabelWizard", "OMQRLB", "/label", ["labels"], ["applicationCode"], "OMXLabel"),
-  mutation("link-issue-to-task", "Link Issue To Task", "openLinkIssueToTaskWizard", "OMQRTA", "/link/ticket", ["trackerLinks"], ["applicationCode", "taskNumber"], "OMXRemoteIssueInformation"),
-  mutation("link-task-to-issue", "Link Task To Issue", "openLinkTaskToIssueWizard", "OMQRTA", "/link/ticket", ["trackerLinks"], ["applicationCode", "taskNumber"], "OMXRemoteIssueInformation"),
+  mutation("link-issue-to-task", "Link Issue To Task", "openLinkIssueToTaskWizard", "OMQRTA", "/link/ticket", ["trackerLinks"], ["applicationCode", "taskNumber"], "OMXRequestTaskLink"),
+  mutation("link-task-to-issue", "Link Task To Issue", "openLinkTaskToIssueWizard", "OMQRTA", "/link/ticket", ["trackerLinks"], ["applicationCode", "taskNumber"], "OMXRequestTaskLink"),
   mutation("move-solutions", "Move Solutions", "openMoveSolutionsWizard", "OMQRSO", "/move", ["solutions", "branchesPaths"], ["applicationCode", "taskNumber"], "OMXSolutionExtended"),
   mutation("new-object", "New Object From Template", "openNewObjectTemplatesWizard", "OMQRNO", "/add", ["objectTemplates", "objectLocations"], ["applicationCode", "taskNumber", "environmentCode"], "OMXObjectExtended"),
   mutation("new-task-branch", "New Task Branch", "openNewTaskBranchWizard", "OMQRBR", "/add", ["branchesPaths"], ["applicationCode", "taskNumber"], "OMXTransferPath"),
@@ -67,7 +67,7 @@ const capabilities = [
   mutation("task-ratification", "Task Ratification", "openTaskRatificationWizard", "OMQRTA", "/ratify", ["ratificationReasons", "programmers"], ["applicationCode", "taskNumber"], "OMXFixExtended"),
   unsupported("tracker-server-manager", "Tracker Server Manager", "openTrackerServerManagerWizard", "Tracker server administration belongs to Octo configuration and has no known TD/OMS REST endpoint."),
   mutation("transfer", "Transfer, Checkout, Or Promote", "openTransferWizard", "OMQRTO", "/prepare", ["taskObjects", "transferTargets", "subEnvironments"], ["applicationCode", "taskNumber"], "OMXSolutionExtended"),
-  mutation("unlink-task-from-issue", "Unlink Task From Issue", "openUnlinkTaskFromIssueWizard", "OMQRTA", "/unlink/ticket", ["trackerLinks"], ["applicationCode", "taskNumber"], "OMXRemoteIssueInformation"),
+  mutation("unlink-task-from-issue", "Unlink Task From Issue", "openUnlinkTaskFromIssueWizard", "OMQRTA", "/unlink/ticket", ["trackerLinks"], ["applicationCode", "taskNumber"], "OMXRequestTaskLink"),
   mutation("execute-user-option", "Execute User Option", "openUserOptionWizard", "OMQRUO", "/execute", ["userOptions"], ["applicationCode", "taskNumber"], "OMXUserOption"),
   mutation("resolve-version-conflict", "Resolve Version Conflict", "openVersionConflictsWizard", "OMQRVC", "/confirm", ["conflicts"], ["applicationCode", "taskNumber"], "OMXObjectVersionConflict")
 ];
