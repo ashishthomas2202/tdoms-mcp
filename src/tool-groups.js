@@ -29,7 +29,8 @@ const CORE_TOOLS = new Set([
   "tdoms_get_view",
   "tdoms_list_tool_groups",
   "tdoms_describe_tools",
-  "tdoms_run_tool"
+  "tdoms_run_tool",
+  "tdoms_run_read_tool"
 ]);
 
 // First match wins.

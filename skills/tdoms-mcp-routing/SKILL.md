@@ -30,7 +30,7 @@ The tool list is grouped so that only the `core` group is loaded by default. Do 
 1. Call `tdoms_list_tool_groups` to see the groups: `core`, `connection`, `tasks`, `requests`, `objects`, `source`, `build`, `transfer`, `insight`, and `admin`.
 2. Call `tdoms_describe_tools` with a `group` (or `search`) for a compact list of names and descriptions.
 3. Call `tdoms_describe_tools` with `tools: [names]` to read input schemas for only the tools about to be used.
-4. Call the tool directly when its group is loaded; otherwise call `tdoms_run_tool` with the tool name and `arguments`. Confirmation rules are unchanged: mutations still need `confirm: true` inside `arguments`.
+4. Call the tool directly when its group is loaded; otherwise call `tdoms_run_read_tool` for reads (tools `tdoms_describe_tools` lists with `readOnly: true`) or `tdoms_run_tool` for changes, with the tool name and `arguments`. Confirmation rules are unchanged: mutations still need `confirm: true` inside `arguments`.
 
 ## Show Views To The User
 

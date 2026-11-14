@@ -109,7 +109,7 @@ test("setup page API signs in to Octo, sets the active connection and rejects ot
   try {
     const before = await (await fetch(`${base}/api/overview`)).json();
     assert.equal(before.octo.account.signedIn, false);
-    assert.equal(before.groups.find((group) => group.id === "core").toolCount, 12);
+    assert.equal(before.groups.find((group) => group.id === "core").toolCount, 13);
 
     const signedIn = await post("/api/octo/sign-in", { url: "https://octo.example.com/org/acme", username: "dev", password: "right" });
     assert.equal(signedIn.ok, true);

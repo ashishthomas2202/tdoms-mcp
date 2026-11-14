@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { registerExtraTools } from "./extra-tools.js";
 import { readOctoSession } from "./octo-session.js";
 import { TOOL_GROUPS, groupForTool, parseGroups } from "./tool-groups.js";
+import { annotationsFor, isReadOnlyTool } from "./tool-annotations.js";
 import { readWorkingContext } from "./working-context.js";
 import { CAPABILITIES, CAPABILITY_IDS, OPTION_SETS, getCapability } from "./capability-registry.js";
 import { ConnectionStore } from "./connection-store.js";
@@ -147,7 +148,7 @@ export function toolGroupSummary() {
     const catalog = buildCatalog({ store: {}, clientFactory: () => undefined, clock: () => Date.now(), workflowPlans: new Map(), octo: {}, profile: "full" });
     groupSummaryCache = TOOL_GROUPS.map((entry) => ({
       ...entry,
-      toolCount: [...catalog.values()].filter((definition) => definition.group === entry.id).length + (entry.id === "core" ? 3 : 0)
+      toolCount: [...catalog.values()].filter((definition) => definition.group === entry.id).length + (entry.id === "core" ? CATALOG_TOOL_COUNT : 0)
     }));
   }
   return groupSummaryCache;
@@ -171,8 +172,9 @@ function buildCatalog({ store, clientFactory, clock, workflowPlans, octo, profil
       const label = field === "applicationCode" ? "TD/OMS application code" : "TD/OMS task number";
       inputSchema[field] = inputSchema[field].optional().describe(`${label}. Omit to use the working context default.`);
     }
-    catalog.set(name, { name, group, config: { ...config, inputSchema }, defaultable, handler });
-    return register(name, config, handler);
+    const annotations = annotationsFor(name);
+    catalog.set(name, { name, group, config: { ...config, inputSchema, annotations }, defaultable, handler });
+    return register(name, { ...config, annotations }, handler);
   };
   const normalizedProfile = profile;
 
@@ -928,17 +930,21 @@ async function runCatalogTool(store, definition, input = {}) {
   return response;
 }
 
+// Tools registered by registerCatalogTools, which sit outside the catalog.
+const CATALOG_TOOL_COUNT = 4;
+
 function registerCatalogTools(server, { catalog, loadedGroups, run }) {
   const toolsIn = (groupId) => [...catalog.values()].filter((definition) => definition.group === groupId);
 
   server.registerTool("tdoms_list_tool_groups", {
     description: "List the tool groups with what each covers, how many tools it holds, and whether its tools are loaded directly. Tools in other groups are called through tdoms_run_tool.",
-    inputSchema: {}
+    inputSchema: {},
+    annotations: annotationsFor("tdoms_list_tool_groups")
   }, async () => result({
     ok: true,
     groups: TOOL_GROUPS.map((entry) => ({
       ...entry,
-      toolCount: toolsIn(entry.id).length + (entry.id === "core" ? 3 : 0),
+      toolCount: toolsIn(entry.id).length + (entry.id === "core" ? CATALOG_TOOL_COUNT : 0),
       loaded: loadedGroups.includes(entry.id)
     })),
     next: "Call tdoms_describe_tools with a group to see its tools, then tdoms_run_tool to call one."
@@ -950,7 +956,8 @@ function registerCatalogTools(server, { catalog, loadedGroups, run }) {
       group: z.enum(TOOL_GROUPS.map((entry) => entry.id)).optional(),
       tools: z.array(z.string()).max(20).optional().describe("Tool names to return full input schemas for."),
       search: z.string().optional().describe("Only tools whose name or description contains this text.")
-    }
+    },
+    annotations: annotationsFor("tdoms_describe_tools")
   }, async ({ group, tools, search }) => {
     if (tools?.length) {
       const unknown = tools.filter((name) => !catalog.has(name));
@@ -964,6 +971,7 @@ function registerCatalogTools(server, { catalog, loadedGroups, run }) {
             group: definition.group,
             description: definition.config.description,
             loaded: loadedGroups.includes(definition.group),
+            readOnly: definition.config.annotations?.readOnlyHint === true,
             inputSchema: z.toJSONSchema(z.object(definition.config.inputSchema), { io: "input" })
           };
         })
@@ -981,28 +989,43 @@ function registerCatalogTools(server, { catalog, loadedGroups, run }) {
       ok: true,
       group,
       count: matches.length,
-      tools: matches.map((definition) => ({ name: definition.name, group: definition.group, description: definition.config.description })),
+      tools: matches.map((definition) => ({ name: definition.name, group: definition.group, readOnly: definition.config.annotations?.readOnlyHint === true, description: definition.config.description })),
       next: "Call tdoms_describe_tools with tools: [names] for input schemas, then tdoms_run_tool."
     });
   });
 
-  server.registerTool("tdoms_run_tool", {
-    description: "Call any catalog tool by name, including tools whose group is not loaded directly. Arguments are validated against that tool's schema; read it first with tdoms_describe_tools. Tools that change TD/OMS still need confirm: true in arguments.",
-    inputSchema: {
-      tool: z.string().describe("Tool name from tdoms_describe_tools."),
-      arguments: z.record(z.string(), z.unknown()).default({})
-    }
-  }, async ({ tool, arguments: args }) => {
+  const dispatch = (tool, args, { readOnly = false } = {}) => {
     const definition = catalog.get(tool);
     if (!definition) {
       throw new Error(`Unknown tool: ${tool}. Use tdoms_describe_tools to find tool names.`);
+    }
+    if (readOnly && !isReadOnlyTool(tool)) {
+      throw new Error(`${tool} is not a read-only tool, so tdoms_run_read_tool will not run it. Use tdoms_run_tool for tools that change TD/OMS.`);
     }
     const parsed = z.object(definition.config.inputSchema).safeParse(args || {});
     if (!parsed.success) {
       throw new Error(`Invalid arguments for ${tool}: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ")}`);
     }
     return run(definition, parsed.data);
-  });
+  };
+
+  server.registerTool("tdoms_run_tool", {
+    description: "Call any catalog tool by name, including tools whose group is not loaded directly. Arguments are validated against that tool's schema; read it first with tdoms_describe_tools. Tools that change TD/OMS still need confirm: true in arguments. For reads, prefer tdoms_run_read_tool, which only runs read-only tools.",
+    inputSchema: {
+      tool: z.string().describe("Tool name from tdoms_describe_tools."),
+      arguments: z.record(z.string(), z.unknown()).default({})
+    },
+    annotations: annotationsFor("tdoms_run_tool")
+  }, async ({ tool, arguments: args }) => dispatch(tool, args));
+
+  server.registerTool("tdoms_run_read_tool", {
+    description: "Call a read-only catalog tool by name (tools listed with readOnly: true by tdoms_describe_tools). Refuses any tool that can change TD/OMS; use tdoms_run_tool for those.",
+    inputSchema: {
+      tool: z.string().describe("Read-only tool name from tdoms_describe_tools."),
+      arguments: z.record(z.string(), z.unknown()).default({})
+    },
+    annotations: annotationsFor("tdoms_run_read_tool")
+  }, async ({ tool, arguments: args }) => dispatch(tool, args, { readOnly: true }));
 }
 
 function ensureOctoRefresh(store, octo) {

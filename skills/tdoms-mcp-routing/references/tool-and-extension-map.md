@@ -50,6 +50,7 @@ Counts are a release snapshot, not an API contract. Inspect `tdoms_list_tool_gro
 | `tdoms_list_tool_groups` | List tool groups, their sizes, and which are loaded. |
 | `tdoms_describe_tools` | List the tools of a group, or return input schemas for named tools. |
 | `tdoms_run_tool` | Call any catalog tool by name with validated arguments. |
+| `tdoms_run_read_tool` | Call a read-only catalog tool by name; refuses tools that change TD/OMS. Prefer it for reads. |
 
 ## Discovery Option Sets
 
