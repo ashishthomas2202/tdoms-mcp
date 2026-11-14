@@ -11,6 +11,21 @@ import { CAPABILITIES, CAPABILITY_IDS, OPTION_SETS, getCapability } from "./capa
 import { ConnectionStore } from "./connection-store.js";
 import { TdomsClient, summarizeSystemInfo } from "./tdoms-client.js";
 import {
+  SOLUTION_TABLE,
+  SOLUTION_SELECTOR_FIELDS,
+  SOLUTION_ACTION_DATA_KEYS,
+  CONNECT_FIELDS,
+  assertConnectFields,
+  buildConnectRequest,
+  buildMultiChangeRequest,
+  buildMultiDisconnectRequest,
+  buildMultiLockRequest,
+  buildMultiMoveRequest,
+  buildMultiUnlockRequest,
+  isTruthyFlag,
+  selectSolutions
+} from "./solution-requests.js";
+import {
   LINK_TABLE,
   LINK_TICKET_FIELDS,
   UNLINK_TICKET_FIELDS,
@@ -26,6 +41,7 @@ import {
 // Tables whose task column is taskNumber instead of fixNumber.
 const TASK_FIELD_BY_TABLE = { [LINK_TABLE]: "taskNumber" };
 const TICKET_WORKFLOWS = new Set(["link-issue-to-task", "link-task-to-issue", "unlink-task-from-issue"]);
+const SOLUTION_WORKFLOWS = new Set(["disconnect-solutions", "move-solutions", "change-solution-type"]);
 
 function taskFieldFor(table) {
   return TASK_FIELD_BY_TABLE[table] || "fixNumber";
@@ -741,7 +757,8 @@ function buildCatalog({ store, clientFactory, clock, workflowPlans, octo, profil
     actions: ["/change", "/connect", "/disconnect", "/lock", "/unlock", "/move", "/multiChange", "/multiDisconnect", "/multiLock", "/multiMove", "/multiUnlock"],
     store,
     clientFactory,
-    confirm: true
+    confirm: true,
+    validateBody: validateSolutionActionBody
   });
 
   registerActionTool(server, {
@@ -1124,6 +1141,7 @@ function registerAgentTools(server, { store, clientFactory, workflowPlans, clock
 
     const execution = resolveExecution(capability, combined);
     let body;
+    let effect;
     const warnings = [];
     if (TICKET_WORKFLOWS.has(capability.id)) {
       const ticket = await planTicketWorkflow({ store, clientFactory, connectionId, capability, context, selections });
@@ -1142,6 +1160,13 @@ function registerAgentTools(server, { store, clientFactory, workflowPlans, clock
       body = ticket.body;
       Object.assign(defaultsApplied, ticket.defaultsApplied);
       warnings.push(...ticket.warnings);
+    } else if (SOLUTION_WORKFLOWS.has(capability.id)) {
+      const solution = await planSolutionWorkflow({ store, clientFactory, connectionId, capability, context, selections });
+      if (!solution.body) {
+        return result({ ok: false, supported: true, workflow: capability.id, blockers: solution.blockers, available: solution.available, defaultsApplied });
+      }
+      body = solution.body;
+      effect = solution.effect;
     } else {
       body = buildWorkflowBody(capability, context, selections);
     }
@@ -1172,7 +1197,7 @@ function registerAgentTools(server, { store, clientFactory, workflowPlans, clock
       workflow: capability.id,
       title: capability.title,
       expiresAt: new Date(expiresAt).toISOString(),
-      preview: { execution, body },
+      preview: { execution, body, ...(effect ? { effect } : {}) },
       defaultsApplied,
       optionSets: capability.optionSets,
       warnings: snapshot.ok ? warnings : [...warnings, `Current-state snapshot unavailable: ${snapshot.error}`],
@@ -2019,6 +2044,173 @@ function registerActionTool(server, { name, description, service, actions, store
   );
 }
 
+function validateSolutionActionBody({ action, body = {} }) {
+  const dataKey = SOLUTION_ACTION_DATA_KEYS[action];
+  if (!dataKey) return;
+  const data = body[dataKey];
+  if (data === undefined || data === null || (Array.isArray(data) && data.length === 0)) {
+    throw new Error(`OMQRSO${action} needs a nested body with ${dataKey} (and interfaceLevel plus processing options); a flat body is read as an unregistered IFS object. Use the typed tdoms_solution_* tools or tdoms_plan_workflow, which build it from the task's solution rows.`);
+  }
+}
+
+async function readSolutionRows(store, connectionId, clientFactory, applicationCode, taskNumber) {
+  const rows = [];
+  for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
+    const response = await queryDatabase(store, connectionId, {
+      table: SOLUTION_TABLE,
+      fieldSelections: [
+        { field: "applicationCode", value: applicationCode, operator: "EQ" },
+        { field: "fixNumber", value: taskNumber, operator: "EQ" }
+      ],
+      pageNumber,
+      recordsPerPage: 50,
+      returnTotalRecords: true
+    }, clientFactory);
+    const failure = tdomsFailure(response);
+    if (failure) throw new Error(`Could not read the task's solutions from ${SOLUTION_TABLE}: ${failure}`);
+    const page = extractRecords(response);
+    rows.push(...page);
+    const total = Number(response?.listStatus?.totalRecords ?? 0);
+    if (page.length < 50 || (total && rows.length >= total)) break;
+  }
+  return rows;
+}
+
+function solutionSelectors(input) {
+  if (Array.isArray(input.solutions) && input.solutions.length > 0) {
+    return input.solutions.map((entry) => (typeof entry === "object" && entry ? entry : { objectCode: String(entry) }));
+  }
+  const selector = {};
+  for (const field of Object.keys(SOLUTION_SELECTOR_FIELDS)) {
+    if (!["applicationCode", "taskNumber"].includes(field) && hasValue(input[field])) selector[field] = input[field];
+  }
+  return [selector];
+}
+
+// Build an OMQRSO multi request for solutions already on the task.
+async function resolveSolutionRequest({ store, clientFactory, connectionId, kind, input }) {
+  const applicationCode = input.applicationCode;
+  const taskNumber = input.taskNumber || input.fixNumber || input.task;
+  const missing = [];
+  if (!hasValue(applicationCode)) missing.push("applicationCode");
+  if (!hasValue(taskNumber)) missing.push("taskNumber");
+  if (missing.length) return { blockers: [`Missing ${missing.join(", ")}.`] };
+
+  const toFix = input.toFix || input.toTaskNumber || input.targetTaskNumber;
+  if (kind === "move" && !hasValue(toFix)) return { blockers: ["Moving solutions needs toTaskNumber (the task to move them to)."] };
+  if (kind === "change" && ![input.solutionType, input.sourceProcessing, input.overrideCode].some(hasValue)) {
+    return { blockers: ["Changing solutions needs solutionType, sourceProcessing or overrideCode."] };
+  }
+
+  const rows = await readSolutionRows(store, connectionId, clientFactory, applicationCode, taskNumber);
+  const selected = selectSolutions(rows, solutionSelectors(input), { applicationCode, taskNumber });
+  if (!selected.rows) return selected;
+
+  const names = selected.rows.map((row) => [row.objectLibrary, row.objectCode || row.iFSObjectCode].filter(hasValue).join("/") + (row.objectType ? ` ${row.objectType}` : "")).join(", ");
+  if (kind === "disconnect") {
+    const deleteObjectAndSource = isTruthyFlag(input.deleteObjectAndSource) || String(input.disconnectMode || "").toLowerCase() === "delete";
+    return {
+      body: buildMultiDisconnectRequest(selected.rows, { deleteObjectAndSource }),
+      path: "/multiDisconnect",
+      effect: deleteObjectAndSource
+        ? `Disconnect AND DELETE the object and source from disk: ${names}. This cannot be undone.`
+        : `Disconnect only (object and source stay on disk): ${names}.`
+    };
+  }
+  if (kind === "lock") return { body: buildMultiLockRequest(selected.rows), path: "/multiLock", effect: `Lock: ${names}.` };
+  if (kind === "unlock") {
+    const forceActiveSolution = isTruthyFlag(input.forceActiveSolution);
+    return { body: buildMultiUnlockRequest(selected.rows, { forceActiveSolution }), path: "/multiUnlock", effect: `Unlock${forceActiveSolution ? " (forcing the active solution)" : ""}: ${names}.` };
+  }
+  if (kind === "move") return { body: buildMultiMoveRequest(selected.rows, String(toFix)), path: "/multiMove", effect: `Move to task ${toFix}: ${names}.` };
+  return {
+    body: buildMultiChangeRequest(selected.rows, { solutionType: input.solutionType, sourceProcessing: input.sourceProcessing, overrideCode: input.overrideCode }),
+    path: "/multiChange",
+    effect: `Change ${["solutionType", "sourceProcessing", "overrideCode"].filter((field) => hasValue(input[field])).map((field) => `${field} to ${input[field]}`).join(", ")}: ${names}.`
+  };
+}
+
+async function planSolutionWorkflow({ store, clientFactory, connectionId, capability, context, selections }) {
+  const kind = { "disconnect-solutions": "disconnect", "move-solutions": "move", "change-solution-type": "change" }[capability.id];
+  try {
+    return await resolveSolutionRequest({ store, clientFactory, connectionId, kind, input: { ...context, ...selections } });
+  } catch (error) {
+    return { blockers: [String(error?.message || error)] };
+  }
+}
+
+function registerSolutionTools(server, store, clientFactory) {
+  const selectorSchema = {};
+  for (const [field, description] of Object.entries(SOLUTION_SELECTOR_FIELDS)) {
+    selectorSchema[field] = z.string().optional().describe(description);
+  }
+  const common = {
+    connectionId: z.string().optional().describe("Saved connection id. Omit when exactly one connection is configured."),
+    ...selectorSchema,
+    solutions: z.array(z.object({
+      objectCode: z.string().optional(),
+      objectType: z.string().optional(),
+      memberCode: z.string().optional(),
+      objectLibrary: z.string().optional(),
+      iFSObjectCode: z.string().optional(),
+      iFSDirectoryCode: z.string().optional()
+    })).optional().describe("Several solutions of the same task at once; use instead of the single object fields."),
+    confirm: z.boolean().optional().describe("Omit to preview the request; pass true to send it.")
+  };
+  const tools = [
+    ["disconnect", "tdoms_solution_disconnect", "Disconnect solutions from a task through OMQRSO/multiDisconnect. Disconnect only by default; deleteObjectAndSource: true also deletes the object and source from disk.", {
+      deleteObjectAndSource: z.boolean().optional().describe("true also deletes the object and source from disk. Default false (disconnect only).")
+    }],
+    ["lock", "tdoms_solution_lock", "Lock solutions of a task through OMQRSO/multiLock.", {}],
+    ["unlock", "tdoms_solution_unlock", "Unlock solutions of a task through OMQRSO/multiUnlock.", {
+      forceActiveSolution: z.boolean().optional().describe("Force the unlock when another task has the active solution.")
+    }],
+    ["move", "tdoms_solution_move", "Move solutions from one task to another through OMQRSO/multiMove.", {
+      toTaskNumber: z.string().describe("Task to move the solutions to.")
+    }],
+    ["change", "tdoms_solution_change", "Change solution type, source processing or override code through OMQRSO/multiChange.", {
+      solutionType: z.string().optional(),
+      sourceProcessing: z.string().optional(),
+      overrideCode: z.string().optional()
+    }]
+  ];
+  for (const [kind, name, description, extra] of tools) {
+    registerAliasTool(server, name, `${description} The request is built from the task's solution rows; without confirm: true it only previews.`, { ...common, ...extra }, async (input) => {
+      const connectionId = await resolveConnectionId(store, input.connectionId);
+      const resolved = await resolveSolutionRequest({ store, clientFactory, connectionId, kind, input });
+      if (!resolved.body) {
+        throw new Error(`${resolved.blockers.join(" ")}${resolved.available?.length ? ` Solutions on the task: ${resolved.available.join("; ")}.` : ""}`);
+      }
+      const execution = { method: "POST", service: "OMQRSO", path: resolved.path };
+      if (input.confirm !== true) {
+        return result({ ok: true, preview: true, posted: false, execution, effect: resolved.effect, body: resolved.body, next: `Review the effect and body, obtain user approval, then call ${name} again with confirm: true.` });
+      }
+      const response = await tdomsPost(store, connectionId, "OMQRSO", resolved.path, resolved.body, clientFactory);
+      const failure = tdomsFailure(response);
+      return result({ ok: !failure, posted: true, execution, effect: resolved.effect, body: resolved.body, response, ...(failure ? { error: failure } : {}) });
+    });
+  }
+
+  const connectSchema = { connectionId: common.connectionId };
+  for (const [field, description] of Object.entries(CONNECT_FIELDS)) {
+    connectSchema[field] = z.string().optional().describe(description);
+  }
+  connectSchema.forceActiveSolution = z.boolean().optional().describe("Connect even when another task has the active solution.");
+  connectSchema.confirm = common.confirm;
+  registerAliasTool(server, "tdoms_solution_connect", "Connect an object to a task through OMQRSO/connect. Without confirm: true it only previews the request.", connectSchema, async (input) => {
+    const connectionId = await resolveConnectionId(store, input.connectionId);
+    assertConnectFields(input);
+    const body = buildConnectRequest(input, { forceActiveSolution: input.forceActiveSolution });
+    const execution = { method: "POST", service: "OMQRSO", path: "/connect" };
+    if (input.confirm !== true) {
+      return result({ ok: true, preview: true, posted: false, execution, body, next: "Review the body, obtain user approval, then call tdoms_solution_connect again with confirm: true." });
+    }
+    const response = await tdomsPost(store, connectionId, "OMQRSO", "/connect", body, clientFactory);
+    const failure = tdomsFailure(response);
+    return result({ ok: !failure, posted: true, execution, body, response, ...(failure ? { error: failure } : {}) });
+  });
+}
+
 function normalizeTicketActionBody(input) {
   if (!["/link/ticket", "/unlink/ticket"].includes(input.action)) return;
   const kind = input.action === "/unlink/ticket" ? "unlink" : "link";
@@ -2333,12 +2525,6 @@ function registerFamilyTools(server, { store, clientFactory }) {
     ["tdoms_request_disconnect_task", "Disconnect a request/task through OMQRRE/disconnect.", "OMQRRE", "/disconnect"],
     ["tdoms_request_rename", "Rename a request through OMQRRE/rename.", "OMQRRE", "/rename"],
     ["tdoms_request_ratify", "Ratify a request through OMQRRE/ratify.", "OMQRRE", "/ratify"],
-    ["tdoms_solution_connect", "Connect a solution through OMQRSO/connect.", "OMQRSO", "/connect"],
-    ["tdoms_solution_disconnect", "Disconnect a solution through OMQRSO/disconnect.", "OMQRSO", "/disconnect"],
-    ["tdoms_solution_change", "Change a solution through OMQRSO/change.", "OMQRSO", "/change"],
-    ["tdoms_solution_lock", "Lock a solution through OMQRSO/lock.", "OMQRSO", "/lock"],
-    ["tdoms_solution_unlock", "Unlock a solution through OMQRSO/unlock.", "OMQRSO", "/unlock"],
-    ["tdoms_solution_move", "Move a solution through OMQRSO/move.", "OMQRSO", "/move"],
     ["tdoms_object_add", "Add an object/component through OMQROB/add.", "OMQROB", "/add"],
     ["tdoms_object_change", "Change an object/component through OMQROB/change.", "OMQROB", "/change"],
     ["tdoms_object_delete", "Delete an object/component through OMQROB/delete.", "OMQROB", "/delete"],
@@ -2382,6 +2568,7 @@ function registerFamilyTools(server, { store, clientFactory }) {
   }
 
   registerTicketTool(server, "link", store, clientFactory);
+  registerSolutionTools(server, store, clientFactory);
   registerTicketTool(server, "unlink", store, clientFactory);
 
   const readEndpointTools = [

@@ -124,6 +124,9 @@ Do not report success from queue acceptance alone. Report severity, source line 
 - Discover `solutions` and `taskObjects` before moving, changing, disconnecting, or deleting them.
 - Use core plans for change solution type, disconnect solutions, move solutions, change member attribute, delete objects, and fill object file.
 - Use full solution/object tools for connect, lock/unlock, relations, close, refill, and operations not in the core registry.
+- Solution plans and the `tdoms_solution_disconnect`, `_lock`, `_unlock`, `_move`, and `_change` tools take the application, task, and object (`objectCode`, `objectType`, `memberCode`, optional `objectLibrary`), or a `solutions` list. They read the task's `OMXSolutionExtended` rows and build the request from them; they stop when an object is not a solution on the task.
+- TD/OMS solution requests are nested: `interfaceLevel`, processing options, and data rows that use `fixNumber`, `memberCode`, `routeCode`, and `pathExtensionLibraryCode` from the solution row. A flat body is read as an unregistered IFS object. `disconnect-solutions` posts `OMQRSO/multiDisconnect`, `move-solutions` posts `/multiMove` with `toTaskNumber`, and `change-solution-type` posts `/multiChange`.
+- Disconnect defaults to disconnect only. `deleteObjectAndSource: true` also deletes the object and source from disk; the preview `effect` says so, and it needs explicit user approval.
 
 For a connection list:
 
