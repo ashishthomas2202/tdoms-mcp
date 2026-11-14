@@ -10,6 +10,26 @@ import { readWorkingContext } from "./working-context.js";
 import { CAPABILITIES, CAPABILITY_IDS, OPTION_SETS, getCapability } from "./capability-registry.js";
 import { ConnectionStore } from "./connection-store.js";
 import { TdomsClient, summarizeSystemInfo } from "./tdoms-client.js";
+import {
+  LINK_TABLE,
+  LINK_TICKET_FIELDS,
+  UNLINK_TICKET_FIELDS,
+  TICKET_FIELD_ALIASES,
+  assertTicketFields,
+  buildLinkTicketBody,
+  buildUnlinkTicketBody,
+  findExistingLink,
+  normalizeTicketFields,
+  resolveTicketRequest
+} from "./ticket-links.js";
+
+// Tables whose task column is taskNumber instead of fixNumber.
+const TASK_FIELD_BY_TABLE = { [LINK_TABLE]: "taskNumber" };
+const TICKET_WORKFLOWS = new Set(["link-issue-to-task", "link-task-to-issue", "unlink-task-from-issue"]);
+
+function taskFieldFor(table) {
+  return TASK_FIELD_BY_TABLE[table] || "fixNumber";
+}
 
 const PACKAGE_VERSION = createRequire(import.meta.url)("../package.json").version;
 
@@ -382,7 +402,8 @@ function buildCatalog({ store, clientFactory, clock, workflowPlans, octo, profil
     actions: ["/change", "/complete", "/link/request", "/unlink/request", "/copy", "/delete", "/ratify", "/status", "/link/ticket", "/unlink/ticket"],
     store,
     clientFactory,
-    confirm: true
+    confirm: true,
+    validateBody: normalizeTicketActionBody
   });
 
   registerActionTool(server, {
@@ -1102,7 +1123,28 @@ function registerAgentTools(server, { store, clientFactory, workflowPlans, clock
     }
 
     const execution = resolveExecution(capability, combined);
-    const body = buildWorkflowBody(capability, context, selections);
+    let body;
+    const warnings = [];
+    if (TICKET_WORKFLOWS.has(capability.id)) {
+      const ticket = await planTicketWorkflow({ store, clientFactory, connectionId, capability, context, selections });
+      if (!ticket.body) {
+        return result({
+          ok: false,
+          supported: true,
+          workflow: capability.id,
+          alreadyLinked: ticket.alreadyLinked || undefined,
+          existing: ticket.existing,
+          choices: ticket.choices,
+          blockers: ticket.blockers,
+          defaultsApplied
+        });
+      }
+      body = ticket.body;
+      Object.assign(defaultsApplied, ticket.defaultsApplied);
+      warnings.push(...ticket.warnings);
+    } else {
+      body = buildWorkflowBody(capability, context, selections);
+    }
     const snapshot = await readWorkflowState({ store, clientFactory, connectionId, capability, context: combined });
     const createdAt = clock();
     const expiresAt = createdAt + 10 * 60 * 1000;
@@ -1133,7 +1175,7 @@ function registerAgentTools(server, { store, clientFactory, workflowPlans, clock
       preview: { execution, body },
       defaultsApplied,
       optionSets: capability.optionSets,
-      warnings: snapshot.ok ? [] : [`Current-state snapshot unavailable: ${snapshot.error}`],
+      warnings: snapshot.ok ? warnings : [...warnings, `Current-state snapshot unavailable: ${snapshot.error}`],
       next: "Review the preview, obtain explicit user approval, then call tdoms_execute_workflow with this planId and confirm: true."
     });
   });
@@ -1378,7 +1420,7 @@ const DATABASE_OPTION_SPECS = {
   revisions: { table: "OMXObjectTransferHistory", value: ["transferCode", "versionNumber", "systemDate"], label: ["objectCode", "transferCode", "versionNumber"], contextFields: ["applicationCode", "objectCode", "objectType", "memberCode"] },
   conflicts: { table: "OMXObjectVersionConflict", value: ["conflictNumber", "objectCode"], label: ["conflictDescription", "objectCode"], contextFields: ["applicationCode", "objectCode", "objectType", "memberCode"] },
   remoteJobs: { table: "OMXRemoteJobMonitorExtended", value: ["transferCode", "qualifiedJobName"], label: ["shortFixDescription", "transferCode", "qualifiedJobName"], contextFields: ["applicationCode", "taskNumber"] },
-  trackerLinks: { table: "OMXRemoteIssueInformation", value: ["issueUrl", "remoteIssueNumber", "trackerIssueUrl"], label: ["issueTitle", "remoteIssueNumber", "issueUrl"], contextFields: ["applicationCode", "taskNumber"] },
+  trackerLinks: { table: LINK_TABLE, fields: ["productCode", "urlToProduct"], value: ["productCode"], label: ["urlToProduct", "productCode"], contextFields: ["applicationCode"] },
   userOptions: { table: "OMXUserOption", value: ["userOption3", "userOption", "optionCode"], label: ["userOptionDescription", "description", "userOption3"], contextFields: [] },
   tasks: { table: "OMXFix", value: ["fixNumber"], label: ["shortFixDescription", "fixNumber"], distinct: false, contextFields: ["applicationCode", "taskNumber"] },
   requests: { table: "OMXRequest", value: ["requestNumber"], label: ["shortRequestDescription", "requestNumber"], distinct: false, contextFields: ["applicationCode", "requestNumber"] },
@@ -1398,11 +1440,13 @@ async function readWorkflowState({ store, clientFactory, connectionId, capabilit
   try {
     const response = await queryDatabase(store, connectionId, {
       table: capability.stateTable,
-      fieldSelections: optionContextSelections(context),
+      fieldSelections: optionContextSelections(context, { taskField: taskFieldFor(capability.stateTable) }),
       pageNumber: 1,
       recordsPerPage: 50,
       returnTotalRecords: true
     }, clientFactory);
+    const failure = tdomsFailure(response);
+    if (failure) return { ok: false, error: failure };
     const records = extractRecords(response);
     return { ok: true, digest: hashValue(records), records };
   } catch (error) {
@@ -1461,6 +1505,61 @@ function buildWorkflowBody(capability, context, selections) {
     delete body.applicationCode;
   }
   return body;
+}
+
+async function readLinkRows(store, connectionId, clientFactory, input) {
+  const response = await queryDatabase(store, connectionId, {
+    table: LINK_TABLE,
+    returnTotalRecords: false,
+    pageNumber: 1,
+    recordsPerPage: 50,
+    ...input
+  }, clientFactory);
+  const failure = tdomsFailure(response);
+  if (failure) throw new Error(`Could not read ${LINK_TABLE}: ${failure}`);
+  return extractRecords(response);
+}
+
+async function readTaskLinkRows(store, connectionId, clientFactory, applicationCode, taskNumber) {
+  return readLinkRows(store, connectionId, clientFactory, {
+    fieldSelections: [
+      { field: "applicationCode", value: applicationCode, operator: "EQ" },
+      { field: "taskNumber", value: taskNumber, operator: "EQ" }
+    ]
+  });
+}
+
+async function planTicketWorkflow({ store, clientFactory, connectionId, capability, context, selections }) {
+  const raw = selections.requestBody && typeof selections.requestBody === "object" && !Array.isArray(selections.requestBody)
+    ? selections.requestBody
+    : {};
+  const input = { ...context, ...raw, ...selections };
+  delete input.requestBody;
+  const kind = capability.id === "unlink-task-from-issue" ? "unlink" : "link";
+  const fields = normalizeTicketFields(input, "link");
+  try {
+    const taskRows = hasValue(fields.applicationCode) && hasValue(fields.taskNumber)
+      ? await readTaskLinkRows(store, connectionId, clientFactory, fields.applicationCode, fields.taskNumber)
+      : [];
+    let products = [];
+    let recentRows = [];
+    if (kind === "link") {
+      const application = [{ field: "applicationCode", value: fields.applicationCode, operator: "EQ" }];
+      products = await readLinkRows(store, connectionId, clientFactory, {
+        fieldSelections: application,
+        returnFields: ["productCode", "urlToProduct"],
+        distinct: true
+      });
+      recentRows = await readLinkRows(store, connectionId, clientFactory, {
+        fieldSelections: application,
+        sortFields: [{ fieldName: "creationDate", sortBy: "DESC" }, { fieldName: "creationTime", sortBy: "DESC" }]
+      });
+    }
+    const resolved = resolveTicketRequest({ kind, input, products, recentRows, taskRows });
+    return { warnings: [], defaultsApplied: {}, ...resolved };
+  } catch (error) {
+    return { blockers: [String(error?.message || error)] };
+  }
 }
 
 function assertAllowedExecution(capability, execution) {
@@ -1920,6 +2019,59 @@ function registerActionTool(server, { name, description, service, actions, store
   );
 }
 
+function normalizeTicketActionBody(input) {
+  if (!["/link/ticket", "/unlink/ticket"].includes(input.action)) return;
+  const kind = input.action === "/unlink/ticket" ? "unlink" : "link";
+  const fields = normalizeTicketFields(input.body || {}, kind);
+  assertTicketFields(fields, kind);
+  input.body = kind === "unlink" ? buildUnlinkTicketBody(fields) : buildLinkTicketBody(fields);
+}
+
+function registerTicketTool(server, kind, store, clientFactory) {
+  const fieldDocs = kind === "unlink" ? UNLINK_TICKET_FIELDS : LINK_TICKET_FIELDS;
+  const name = kind === "unlink" ? "tdoms_task_unlink_ticket" : "tdoms_task_link_ticket";
+  const path = kind === "unlink" ? "/unlink/ticket" : "/link/ticket";
+  const inputSchema = { connectionId: z.string().optional().describe("Saved connection id. Omit when exactly one connection is configured.") };
+  for (const [field, description] of Object.entries(fieldDocs)) {
+    inputSchema[field] = z.string().optional().describe(description);
+  }
+  for (const [alias, target] of Object.entries(TICKET_FIELD_ALIASES)) {
+    if (target in fieldDocs && !(alias in inputSchema)) {
+      inputSchema[alias] = z.string().optional().describe(`Alias for ${target}.`);
+    }
+  }
+  inputSchema.body = z.record(z.string(), z.unknown()).optional().describe("Optional request fields as an object; named arguments take precedence.");
+  inputSchema.confirm = z.boolean().optional().describe("Omit to preview the request; pass true to send it.");
+
+  const description = kind === "unlink"
+    ? "Unlink a tracker issue (such as Jira) from a TD/OMS task through OMQRTA/unlink/ticket. Without confirm: true it only previews the request."
+    : "Link a TD/OMS task to a tracker issue (such as Jira) through OMQRTA/link/ticket. Skips the post when the link already exists. Without confirm: true it only previews the request. tdoms_plan_workflow with link-task-to-issue can work out productId and the URL form for you.";
+
+  registerAliasTool(server, name, description, inputSchema, async (input) => {
+    const connectionId = await resolveConnectionId(store, input.connectionId);
+    const { body: rawBody = {}, confirm, connectionId: _ignored, ...named } = input;
+    const fields = normalizeTicketFields({ ...rawBody, ...named }, kind);
+    assertTicketFields(fields, kind);
+    const body = kind === "unlink" ? buildUnlinkTicketBody(fields) : buildLinkTicketBody(fields);
+    const execution = { method: "POST", service: "OMQRTA", path };
+
+    const taskRows = await readTaskLinkRows(store, connectionId, clientFactory, fields.applicationCode, fields.taskNumber);
+    const existing = findExistingLink(taskRows, fields);
+    if (kind === "link" && existing) {
+      return result({ ok: true, alreadyLinked: true, posted: false, existing, message: `Task ${fields.applicationCode} ${fields.taskNumber} is already linked to ${fields.urlToItem}.` });
+    }
+    if (kind === "unlink" && !existing) {
+      return result({ ok: false, posted: false, existing: taskRows, message: `Task ${fields.applicationCode} ${fields.taskNumber} has no link to ${fields.urlToItem}.` });
+    }
+    if (confirm !== true) {
+      return result({ ok: true, preview: true, posted: false, execution, body, next: `Review the body, obtain user approval, then call ${name} again with confirm: true.` });
+    }
+    const response = await tdomsPost(store, connectionId, "OMQRTA", path, body, clientFactory);
+    const failure = tdomsFailure(response);
+    return result({ ok: !failure, posted: true, execution, body, response, ...(failure ? { error: failure } : {}) });
+  });
+}
+
 function validateNewObjectActionBody({ action, body = {} }) {
   if (!["/add", "/location"].includes(action)) {
     return;
@@ -2063,8 +2215,8 @@ function registerFamilyTools(server, { store, clientFactory }) {
     ["tdoms_task_get", "Get one task/fix by application and task number.", "OMXFix"],
     ["tdoms_task_objects", "List objects/solutions connected to a task.", "OMXSolutionExtended"],
     ["tdoms_task_requests", "List requests linked to a task.", "OMXRequestTaskLink"],
-    ["tdoms_task_tickets", "List external ticket/backlink rows for a task when available.", "OMXRemoteIssueInformation"],
-    ["tdoms_task_backlinks", "List task backlinks/external ticket rows when available.", "OMXRemoteIssueInformation"],
+    ["tdoms_task_tickets", "List tracker issue links (Jira and similar) for a task from OMXRequestTaskLink.", LINK_TABLE],
+    ["tdoms_task_backlinks", "List tracker issue links for a task from OMXRequestTaskLink.", LINK_TABLE],
     ["tdoms_task_comments", "List comments related to a task when available.", "OMXCommentLink"],
     ["tdoms_task_labels", "List labels related to a task when available.", "OMXLabel"],
     ["tdoms_task_log_history", "List log history rows related to a task.", "OMXLogHistoryExtended"],
@@ -2127,8 +2279,8 @@ function registerFamilyTools(server, { store, clientFactory }) {
     ok: true,
     task: await safeQuery(store, input.connectionId, taskQuery("OMXFixExtended", input), clientFactory),
     objects: await safeQuery(store, input.connectionId, taskQuery("OMXSolutionExtended", input), clientFactory),
-    requests: await safeQuery(store, input.connectionId, taskQuery("OMXRequestTaskLink", input), clientFactory),
-    tickets: await safeQuery(store, input.connectionId, taskQuery("OMXRemoteIssueInformation", input), clientFactory),
+    requests: await safeQuery(store, input.connectionId, taskQuery(LINK_TABLE, input), clientFactory),
+    tickets: await safeQuery(store, input.connectionId, taskQuery(LINK_TABLE, input), clientFactory),
     comments: await safeQuery(store, input.connectionId, taskQuery("OMXCommentLink", input), clientFactory),
     labels: await safeQuery(store, input.connectionId, taskQuery("OMXLabel", input), clientFactory),
     transferHistory: await safeQuery(store, input.connectionId, taskQuery("OMXObjectTransferHistory", input), clientFactory),
@@ -2172,8 +2324,6 @@ function registerFamilyTools(server, { store, clientFactory }) {
     ["tdoms_task_ratify", "Ratify a task through OMQRTA/ratify.", "OMQRTA", "/ratify"],
     ["tdoms_task_link_request", "Link a request to a task through OMQRTA/link/request.", "OMQRTA", "/link/request"],
     ["tdoms_task_unlink_request", "Unlink a request from a task through OMQRTA/unlink/request.", "OMQRTA", "/unlink/request"],
-    ["tdoms_task_link_ticket", "Link an external ticket/backlink through OMQRTA/link/ticket.", "OMQRTA", "/link/ticket"],
-    ["tdoms_task_unlink_ticket", "Unlink an external ticket/backlink through OMQRTA/unlink/ticket.", "OMQRTA", "/unlink/ticket"],
     ["tdoms_request_create", "Create a request through OMQRRE/add.", "OMQRRE", "/add"],
     ["tdoms_request_change", "Change a request through OMQRRE/change.", "OMQRRE", "/change"],
     ["tdoms_request_complete", "Complete a request through OMQRRE/complete.", "OMQRRE", "/complete"],
@@ -2230,6 +2380,9 @@ function registerFamilyTools(server, { store, clientFactory }) {
   for (const [name, description, service, path] of actionTools) {
     registerEndpointTool(server, { name, description, service, path, store, clientFactory, confirm: true });
   }
+
+  registerTicketTool(server, "link", store, clientFactory);
+  registerTicketTool(server, "unlink", store, clientFactory);
 
   const readEndpointTools = [
     ["tdoms_source_get", "Read source through OMRSRC/source/get.", "OMRSRC", "/source/get"],
@@ -2618,7 +2771,7 @@ function registerDatabaseTool(server, { name, description, table, returnFields, 
     const response = await queryDatabase(store, input.connectionId, {
       table: input.table || table,
       returnFields: input.returnFields || returnFields,
-      fieldSelections: input.fieldSelections || commonFieldSelections(input),
+      fieldSelections: input.fieldSelections || commonFieldSelections(input, input.table || table),
       whereClause: input.whereClause,
       sortFields: input.sortFields,
       pageNumber: input.pageNumber ?? 1,
@@ -2728,7 +2881,7 @@ function taskQuery(table, input) {
     table,
     fieldSelections: [
       { field: "applicationCode", value: input.applicationCode, operator: "EQ" },
-      { field: "fixNumber", value: input.taskNumber, operator: "EQ" }
+      { field: taskFieldFor(table), value: input.taskNumber, operator: "EQ" }
     ],
     pageNumber: 1,
     recordsPerPage: 50,
@@ -2759,10 +2912,10 @@ function objectQuery(table, input) {
   };
 }
 
-function commonFieldSelections(input) {
+function commonFieldSelections(input, table) {
   return compactArray([
     input.applicationCode && { field: "applicationCode", value: input.applicationCode, operator: "EQ" },
-    input.taskNumber && { field: "fixNumber", value: input.taskNumber, operator: "EQ" },
+    input.taskNumber && { field: taskFieldFor(table), value: input.taskNumber, operator: "EQ" },
     input.requestNumber && { field: "requestNumber", value: input.requestNumber, operator: "EQ" },
     input.programmer && { field: "programmer", value: input.programmer, operator: "EQ" },
     input.status && { field: "fixStatus", value: input.status, operator: "EQ" },
