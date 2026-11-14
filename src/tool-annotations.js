@@ -1,0 +1,300 @@
+// MCP tool annotations for every tool, kept in one table so clients can tell
+// reads from writes. Every registered tool must appear here exactly once;
+// registration fails otherwise.
+//
+// read        readOnlyHint true. Only reads TD/OMS or local data.
+// change      readOnlyHint false, destructiveHint false. Adds or updates.
+// idempotent  change, and repeating the same call has no further effect.
+// destructive readOnlyHint false, destructiveHint true. Removes, completes,
+//             executes transfers, or can do anything (free-form callers).
+
+const READ = [
+  // Catalog and context
+  "tdoms_list_tool_groups",
+  "tdoms_describe_tools",
+  "tdoms_run_read_tool",
+  "tdoms_list_connections",
+  "tdoms_get_current_context",
+  "tdoms_list_capabilities",
+  "tdoms_discover_options",
+  "tdoms_plan_workflow",
+  "tdoms_get_workflow_status",
+  "tdoms_get_view",
+  "tdoms_user_context",
+  "tdoms_get_system_info",
+  "tdoms_connection_list",
+  "tdoms_connection_system_info",
+  "tdoms_connection_license_info",
+  "tdoms_connection_user_context",
+  "tdoms_connection_applications",
+  "tdoms_connection_octo_status",
+  // Database reads
+  "tdoms_query_database",
+  "tdoms_search_tasks",
+  "tdoms_get_task",
+  "tdoms_task_search",
+  "tdoms_task_get",
+  "tdoms_task_objects",
+  "tdoms_task_requests",
+  "tdoms_task_tickets",
+  "tdoms_task_backlinks",
+  "tdoms_task_comments",
+  "tdoms_task_labels",
+  "tdoms_task_log_history",
+  "tdoms_task_transfer_history",
+  "tdoms_task_build_queue",
+  "tdoms_task_compile_results",
+  "tdoms_task_details",
+  "tdoms_request_search",
+  "tdoms_request_get",
+  "tdoms_request_details",
+  "tdoms_solution_search",
+  "tdoms_solution_get",
+  "tdoms_solution_details",
+  "tdoms_solution_compile_overrides",
+  "tdoms_solution_transfer_history",
+  "tdoms_solution_build_queue",
+  "tdoms_solution_compile_results",
+  "tdoms_object_search",
+  "tdoms_object_get",
+  "tdoms_object_details",
+  "tdoms_object_members",
+  "tdoms_object_transfer_history",
+  "tdoms_object_version_conflicts",
+  "tdoms_branch_search",
+  "tdoms_branch_get",
+  "tdoms_branch_tasks",
+  "tdoms_branch_solutions",
+  "tdoms_connection_list_get",
+  "tdoms_connection_list_entries",
+  "tdoms_build_queue_list",
+  "tdoms_build_queue_for_task",
+  "tdoms_build_queue_for_solution",
+  "tdoms_build_queue_for_object",
+  "tdoms_compile_results",
+  "tdoms_compile_errors",
+  "tdoms_transfer_history",
+  "tdoms_managed_deployment_list",
+  "tdoms_remote_job_list",
+  "tdoms_remote_job_get",
+  "tdoms_comment_list",
+  "tdoms_label_list",
+  "tdoms_user_option_list",
+  "tdoms_dashboard_list",
+  "tdoms_dashboard_missing_source",
+  "tdoms_dashboard_problem_transfers",
+  "tdoms_dashboard_execute",
+  "tdoms_tracker_search",
+  "tdoms_tracker_get",
+  "tdoms_admin_data_dictionary",
+  "tdoms_admin_table_fields",
+  "tdoms_admin_saved_searches",
+  "tdoms_admin_saved_search_run",
+  "tdoms_kanban_boards",
+  "tdoms_kanban_cards",
+  "tdoms_ifs_search",
+  "tdoms_source_history",
+  "tdoms_source_revision",
+  "tdoms_source_includes",
+  "tdoms_component_editor_get",
+  // Source reads and compares
+  "tdoms_read_source",
+  "tdoms_read_source_all",
+  "tdoms_source_get",
+  "tdoms_source_read_object",
+  "tdoms_ifs_read",
+  "tdoms_check_source",
+  "tdoms_source_diff",
+  "tdoms_source_compare",
+  "tdoms_source_compare_production",
+  "tdoms_source_compare_revision",
+  "tdoms_ifs_compare",
+  // Endpoint reads
+  "tdoms_object_relations",
+  "tdoms_object_job_relations",
+  "tdoms_compile_event_raw_records",
+  "tdoms_compile_event_parse",
+  "tdoms_parse_compile_events",
+  "tdoms_log_action",
+  "tdoms_log_history",
+  "tdoms_log_messages",
+  "tdoms_log_message_get",
+  "tdoms_spool_list",
+  "tdoms_spool_fetch",
+  "tdoms_analysis_impact",
+  "tdoms_analysis_dependency_graph",
+  "tdoms_transfer_targets",
+  "tdoms_transfer_select_targets",
+  "tdoms_transfer_progress",
+  "tdoms_transfer_progress_number",
+  "tdoms_new_object_location",
+  // Local only
+  "tdoms_ibmi_convert"
+];
+
+const IDEMPOTENT = [
+  "tdoms_set_working_context",
+  "tdoms_login_connection",
+  "tdoms_connection_login",
+  "tdoms_connection_test",
+  "tdoms_connection_refresh_token",
+  "tdoms_connection_import_octo",
+  "tdoms_task_change",
+  "tdoms_task_status",
+  "tdoms_task_link_request",
+  "tdoms_task_link_ticket",
+  "tdoms_request_change",
+  "tdoms_request_rename",
+  "tdoms_object_change",
+  "tdoms_component_change_member_attributes",
+  "tdoms_connection_list_change",
+  "tdoms_compile_override_change",
+  "tdoms_compile_override_authorize",
+  "tdoms_managed_deployment_hold",
+  "tdoms_branch_change",
+  "tdoms_branch_status",
+  "tdoms_comment_change",
+  "tdoms_label_change",
+  "tdoms_label_apply",
+  "tdoms_object_template_change",
+  "tdoms_solution_change",
+  "tdoms_solution_lock",
+  "tdoms_solution_unlock"
+];
+
+const CHANGE = [
+  "tdoms_create_task",
+  "tdoms_save_source",
+  "tdoms_save_source_all",
+  "tdoms_save_source_checked",
+  "tdoms_patch_source_literal",
+  "tdoms_source_save_object",
+  "tdoms_ifs_save",
+  "tdoms_connection_list_add",
+  "tdoms_connection_list_process",
+  "tdoms_compile_queue_add",
+  "tdoms_compile_queue_release",
+  "tdoms_compile_task",
+  "tdoms_compile_solution",
+  "tdoms_compile_object",
+  "tdoms_compile_and_check",
+  "tdoms_new_object_action",
+  "tdoms_new_object_create",
+  "tdoms_new_source_member_create",
+  "tdoms_data_area_create",
+  "tdoms_ifs_object_create",
+  "tdoms_object_template_add",
+  "tdoms_object_template_copy",
+  "tdoms_task_copy",
+  "tdoms_request_create",
+  "tdoms_request_copy",
+  "tdoms_request_connect_task",
+  "tdoms_object_add",
+  "tdoms_object_refill",
+  "tdoms_compile_override_add",
+  "tdoms_managed_deployment_schedule",
+  "tdoms_branch_create",
+  "tdoms_branch_stash",
+  "tdoms_branch_restore",
+  "tdoms_comment_add",
+  "tdoms_comment_reply",
+  "tdoms_label_add",
+  "tdoms_admin_saved_search_save",
+  "tdoms_solution_connect",
+  "tdoms_solution_move",
+  "tdoms_transfer_select",
+  "tdoms_transfer_prepare",
+  "tdoms_remote_job_reopen",
+  "tdoms_kanban_move_card",
+  "tdoms_checkout_task",
+  "tdoms_checkout_solution",
+  "tdoms_checkout_object"
+];
+
+const DESTRUCTIVE = [
+  // Free-form or dispatching: can do anything.
+  "tdoms_call_api",
+  "tdoms_run_tool",
+  "tdoms_execute_workflow",
+  "tdoms_admin_call_program_request",
+  "tdoms_user_option_execute",
+  // Multi-action tools whose actions include deletes, completes or transfers.
+  "tdoms_task_action",
+  "tdoms_request_action",
+  "tdoms_transfer_action",
+  "tdoms_solution_action",
+  "tdoms_branch_action",
+  "tdoms_spool_action",
+  "tdoms_remote_job_action",
+  "tdoms_object_action",
+  "tdoms_comment_action",
+  "tdoms_label_action",
+  "tdoms_user_options_action",
+  "tdoms_version_conflict_action",
+  "tdoms_compile_override_action",
+  "tdoms_managed_deployment_action",
+  "tdoms_fill_object_action",
+  // Removals and irreversible steps.
+  "tdoms_compile_queue_delete",
+  "tdoms_task_complete",
+  "tdoms_task_delete",
+  "tdoms_task_ratify",
+  "tdoms_task_unlink_request",
+  "tdoms_task_unlink_ticket",
+  "tdoms_request_complete",
+  "tdoms_request_delete",
+  "tdoms_request_disconnect_task",
+  "tdoms_request_ratify",
+  "tdoms_object_delete",
+  "tdoms_object_close",
+  "tdoms_connection_list_delete",
+  "tdoms_connection_list_clear",
+  "tdoms_compile_override_delete",
+  "tdoms_managed_deployment_release",
+  "tdoms_managed_deployment_close",
+  "tdoms_branch_delete",
+  "tdoms_branch_purge",
+  "tdoms_comment_delete",
+  "tdoms_label_delete",
+  "tdoms_label_remove",
+  "tdoms_object_template_delete",
+  "tdoms_solution_disconnect",
+  "tdoms_spool_delete",
+  "tdoms_remote_job_close",
+  "tdoms_transfer_execute",
+  "tdoms_transfer_execute_number",
+  "tdoms_transfer_cancel",
+  "tdoms_transfer_hold_job",
+  "tdoms_transfer_move",
+  "tdoms_transfer_copy",
+  "tdoms_promote_task",
+  "tdoms_promote_solution",
+  "tdoms_promote_object"
+];
+
+function build() {
+  const table = new Map();
+  const add = (names, annotations) => {
+    for (const name of names) {
+      if (table.has(name)) throw new Error(`Tool ${name} is classified twice in tool-annotations.js.`);
+      table.set(name, Object.freeze({ ...annotations }));
+    }
+  };
+  add(READ, { readOnlyHint: true, openWorldHint: false });
+  add(IDEMPOTENT, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+  add(CHANGE, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false });
+  add(DESTRUCTIVE, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false });
+  return table;
+}
+
+export const TOOL_ANNOTATIONS = build();
+
+export function annotationsFor(name) {
+  const annotations = TOOL_ANNOTATIONS.get(name);
+  if (!annotations) throw new Error(`Tool ${name} has no annotations; add it to src/tool-annotations.js.`);
+  return annotations;
+}
+
+export function isReadOnlyTool(name) {
+  return TOOL_ANNOTATIONS.get(name)?.readOnlyHint === true;
+}

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.4
+
+- Mark every tool with MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) from one table in `src/tool-annotations.js`, so clients that review tool calls can let reads through. Registration fails for a tool missing from the table.
+- Add `tdoms_run_read_tool`, which runs only read-only catalog tools and is itself marked read-only. `tdoms_describe_tools` reports `readOnly` for each tool. Tool behaviour and `confirm: true` rules are unchanged.
+
 ## 0.10.3
 
 - Fix disconnecting solutions from a task. `disconnect-solutions` and `tdoms_solution_disconnect` posted a flat body that TD/OMS read as an unregistered IFS object. They now read the task's solution rows and post the nested `OMQRSO/multiDisconnect` request, disconnect only by default, with deleting the object and source as an explicit, clearly previewed choice. Solutions that are not on the task are refused before posting.

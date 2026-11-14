@@ -132,7 +132,7 @@ Tools are grouped so an agent loads a small list and still reaches everything. T
 - `tdoms_list_capabilities`, `tdoms_discover_options`
 - `tdoms_plan_workflow`, `tdoms_execute_workflow`, `tdoms_get_workflow_status`
 - `tdoms_get_view`
-- `tdoms_list_tool_groups`, `tdoms_describe_tools`, `tdoms_run_tool`
+- `tdoms_list_tool_groups`, `tdoms_describe_tools`, `tdoms_run_tool`, `tdoms_run_read_tool`
 
 Every other tool belongs to one of these groups:
 
@@ -148,7 +148,9 @@ Every other tool belongs to one of these groups:
 | `insight` | Logs, dashboards, impact and dependency analysis, Kanban data, tracker records |
 | `admin` | Data dictionary, saved searches, user options, database queries, raw REST access, IBM i data conversions |
 
-An agent calls `tdoms_list_tool_groups`, reads one group with `tdoms_describe_tools`, and calls any tool with `tdoms_run_tool`. Schemas are fetched only for the tools about to be used.
+An agent calls `tdoms_list_tool_groups`, reads one group with `tdoms_describe_tools`, and calls any tool with `tdoms_run_tool`. Schemas are fetched only for the tools about to be used. `tdoms_run_read_tool` runs only read-only tools and refuses the rest, so clients can let it through without review.
+
+Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), kept in one table in `src/tool-annotations.js`. Reads are marked read-only; tools that add or update are marked non-destructive; deletes, completions, promotions, transfers, and free-form callers such as `tdoms_call_api` and `tdoms_run_tool` are marked destructive. `tdoms_describe_tools` also reports `readOnly` for each tool.
 
 To load groups as directly callable tools, name them at startup:
 

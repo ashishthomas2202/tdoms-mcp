@@ -77,7 +77,7 @@ test("the catalog lists groups, describes tools, and runs tools that are not loa
   const groups = await call("tdoms_list_tool_groups");
   assert.deepEqual(groups.groups.map((group) => group.id), TOOL_GROUP_IDS);
   assert.deepEqual(groups.groups.filter((group) => group.loaded).map((group) => group.id), ["core"]);
-  assert.equal(groups.groups.find((group) => group.id === "core").toolCount, 12);
+  assert.equal(groups.groups.find((group) => group.id === "core").toolCount, 13);
 
   const listed = await call("tdoms_describe_tools", { group: "requests" });
   assert.equal(listed.count, 13);
